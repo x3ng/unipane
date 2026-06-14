@@ -279,40 +279,6 @@
   }
 
   function renderMarkdownView(container, filePath, text) {
-    // Breadcrumb
-    const breadcrumb = document.createElement('div');
-    breadcrumb.className = 'breadcrumb';
-    const parts = filePath.split('/');
-    const rootParts = root.split('/').filter(Boolean);
-    let cumPath = '';
-    // Add root link
-    const rootLink = document.createElement('a');
-    rootLink.textContent = rootParts[rootParts.length - 1] || root;
-    rootLink.href = '#';
-    rootLink.onclick = (e) => { e.preventDefault(); navigateTo('file', ''); };
-    breadcrumb.appendChild(rootLink);
-    // Add path segments
-    parts.forEach((part, i) => {
-      cumPath += (i > 0 ? '/' : '') + part;
-      const sep = document.createElement('span');
-      sep.className = 'sep';
-      sep.textContent = '/';
-      breadcrumb.appendChild(sep);
-      if (i < parts.length - 1) {
-        const link = document.createElement('a');
-        link.textContent = part;
-        const dirPath = cumPath;
-        link.href = '#';
-        link.onclick = (e) => { e.preventDefault(); navigateTo('file', dirPath); };
-        breadcrumb.appendChild(link);
-      } else {
-        const span = document.createElement('span');
-        span.textContent = part;
-        breadcrumb.appendChild(span);
-      }
-    });
-    container.appendChild(breadcrumb);
-
     // Toolbar
     const toolbar = document.createElement('div');
     toolbar.style.cssText = 'margin-bottom:12px;display:flex;gap:8px;';
@@ -487,11 +453,6 @@
     return div.innerHTML;
   }
 
-  function showFallbackError(msg) {
-    const container = document.getElementById('content');
-    container.innerHTML = '<div class="welcome"><h2>⚠️</h2><p>' + escapeHtml(msg) + '</p></div>';
-  }
-
   // ─── Init ────────────────────────────────────────────────
 
   async function init() {
@@ -580,39 +541,6 @@
       applyCssTheme(currentCss);
     });
 
-    // Sidebar toggle
-    const sidebar = document.getElementById('sidebar');
-    const toggleSidebarBtn = document.getElementById('toggle-sidebar');
-    const savedSidebarW = localStorage.getItem('unipane-sidebar-width');
-    if (savedSidebarW) sidebar.style.width = savedSidebarW;
-
-    toggleSidebarBtn.addEventListener('click', () => {
-      sidebar.classList.toggle('hidden');
-      toggleSidebarBtn.textContent = sidebar.classList.contains('hidden') ? '▶' : '◀';
-    });
-
-    // Sidebar resize
-    const resizeHandle = document.getElementById('sidebar-resize');
-    let resizing = false;
-    resizeHandle.addEventListener('mousedown', (e) => {
-      resizing = true;
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-      e.preventDefault();
-    });
-    document.addEventListener('mousemove', (e) => {
-      if (!resizing) return;
-      const w = Math.max(150, Math.min(window.innerWidth * 0.5, e.clientX));
-      sidebar.style.width = w + 'px';
-    });
-    document.addEventListener('mouseup', () => {
-      if (!resizing) return;
-      resizing = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      localStorage.setItem('unipane-sidebar-width', sidebar.style.width);
-    });
-
     window.addEventListener('hashchange', handleHashChange);
 
     // Intercept markdown link clicks → hash navigation
@@ -645,20 +573,8 @@
       const resolved = [];
       for (const p of parts) {
         if (p === '.') continue;
-        if (p === '..') {
-          if (resolved.length === 0) {
-            // Trying to go above root — show error
-            showFallbackError('路径超出根目录：' + href);
-            return;
-          }
-          resolved.pop();
-          continue;
-        }
+        if (p === '..') { resolved.pop(); continue; }
         resolved.push(p);
-      }
-      if (resolved.length === 0) {
-        showFallbackError('无效路径：' + href);
-        return;
       }
       navigateTo('file', resolved.join('/'));
     });
