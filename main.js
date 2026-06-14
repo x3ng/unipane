@@ -23,6 +23,7 @@
     activeId: null,
     tree: null,
     showHidden: false,
+    pendingHistory: null,  // History to pass to next openFile
   };
 
   // ─── Router ──────────────────────────────────────────────
@@ -38,18 +39,25 @@
     return { type: 'default' };
   }
 
-  function navigateTo(type, value) {
-    if (type === 'file') {
-      window.location.hash = '#/file/' + encodeURIComponent(value);
-    } else if (type === 'page') {
-      window.location.hash = '#/page/' + value;
+  function navigateTo(type, value, history) {
+    state.pendingHistory = history || null;
+    const newHash = type === 'file'
+      ? '#/file/' + encodeURIComponent(value)
+      : '#/page/' + value;
+    // Force hashchange even if hash is the same
+    if (window.location.hash === newHash) {
+      handleHashChange();
+    } else {
+      window.location.hash = newHash;
     }
   }
 
   function handleHashChange() {
     const route = parseHash();
     if (route.type === 'file') {
-      openFile(route.path);
+      const history = state.pendingHistory;
+      state.pendingHistory = null;
+      openFile(route.path, history);
     } else if (route.type === 'page') {
       openPage(route.pageId);
     } else {
@@ -104,9 +112,16 @@
         item.children.forEach(child => children.appendChild(createTreeNode(child)));
       }
 
+      // Single click: toggle expand
       header.onclick = () => {
         const collapsed = children.classList.toggle('collapsed');
         header.querySelector('.icon').textContent = collapsed ? '▶' : '▼';
+      };
+
+      // Double click: open directory view
+      header.ondblclick = (e) => {
+        e.stopPropagation();
+        navigateTo('file', item.path + '/');
       };
 
       el.appendChild(header);
@@ -142,11 +157,11 @@
     renderSidebarNav();
   }
 
-  function openFile(path) {
+  function openFile(path, history) {
     const id = 'file:' + path;
     let pane = findPane(id);
     if (!pane) {
-      pane = { id, type: 'file', path, title: basename(path) };
+      pane = { id, type: 'file', path, title: basename(path), history: history || [] };
       state.panes.push(pane);
     }
     activatePane(id);
@@ -241,6 +256,12 @@
   async function renderFileContent(container, pane) {
     const path = root + '/' + pane.path;
     try {
+      // Directory: check if path ends with / or is in tree as dir
+      if (pane.path.endsWith('/')) {
+        renderDirectoryView(container, pane.path);
+        return;
+      }
+
       if (/\.(png|jpg|jpeg|gif|svg|webp)$/i.test(pane.path)) {
         const img = document.createElement('img');
         img.src = bust(path);
@@ -278,7 +299,103 @@
     }
   }
 
+  function renderDirectoryView(container, dirPath) {
+    // Find directory in tree
+    function findDir(items, path) {
+      for (const item of items) {
+        if (item.path === path && item.type === 'dir') return item;
+        if (item.children) {
+          const found = findDir(item.children, path);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+
+    const dir = findDir(state.tree, dirPath.replace(/\/$/, ''));
+    if (!dir) {
+      container.textContent = 'Directory not found: ' + dirPath;
+      return;
+    }
+
+    // Breadcrumb: navigation history
+    const pane = findPane(state.activeId);
+    if (pane && pane.history && pane.history.length > 0) {
+      const breadcrumb = document.createElement('div');
+      breadcrumb.className = 'breadcrumb';
+      pane.history.forEach((h, i) => {
+        if (i > 0) {
+          const sep = document.createElement('span');
+          sep.className = 'sep';
+          sep.textContent = '>';
+          breadcrumb.appendChild(sep);
+        }
+        const link = document.createElement('a');
+        link.textContent = h.title;
+        link.href = '#';
+        link.onclick = (e) => {
+          e.preventDefault();
+          // Go back to this point in history
+          pane.history = pane.history.slice(0, i);
+          navigateTo('file', h.path);
+        };
+        breadcrumb.appendChild(link);
+      });
+      container.appendChild(breadcrumb);
+    }
+
+    // Directory listing
+    const list = document.createElement('div');
+    list.className = 'dir-list';
+
+    if (dirPath !== '' && dirPath !== '.') {
+      const parent = document.createElement('div');
+      parent.className = 'tree-item';
+      parent.innerHTML = '<span class="icon">📁</span> ..';
+      parent.onclick = () => {
+        const parentPath = dirPath.replace(/\/$/, '').split('/').slice(0, -1).join('/');
+        navigateTo('file', parentPath ? parentPath + '/' : '');
+      };
+      list.appendChild(parent);
+    }
+
+    dir.children.forEach(item => {
+      const el = document.createElement('div');
+      el.className = 'tree-item' + (item.type === 'dir' ? ' dir' : '');
+      el.innerHTML = `<span class="icon">${item.type === 'dir' ? '📁' : fileIcon(item.name)}</span> ${escapeHtml(item.name)}`;
+      el.onclick = () => navigateTo('file', item.path + (item.type === 'dir' ? '/' : ''));
+      list.appendChild(el);
+    });
+
+    container.appendChild(list);
+  }
+
   function renderMarkdownView(container, filePath, text) {
+    // Breadcrumb: navigation history
+    const pane = findPane(state.activeId);
+    if (pane && pane.history && pane.history.length > 0) {
+      const breadcrumb = document.createElement('div');
+      breadcrumb.className = 'breadcrumb';
+      pane.history.forEach((h, i) => {
+        if (i > 0) {
+          const sep = document.createElement('span');
+          sep.className = 'sep';
+          sep.textContent = '>';
+          breadcrumb.appendChild(sep);
+        }
+        const link = document.createElement('a');
+        link.textContent = h.title;
+        link.href = '#';
+        link.onclick = (e) => {
+          e.preventDefault();
+          pane.history = pane.history.slice(0, i);
+          navigateTo('file', h.path);
+        };
+        breadcrumb.appendChild(link);
+      });
+      container.appendChild(breadcrumb);
+    }
+
     // Toolbar
     const toolbar = document.createElement('div');
     toolbar.style.cssText = 'margin-bottom:12px;display:flex;gap:8px;';
@@ -294,6 +411,27 @@
     div.className = 'md-content';
     div.innerHTML = marked.parse(text);
     container.appendChild(div);
+
+    // Fix relative links to absolute paths (for right-click "open in new tab")
+    const dir = filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : '';
+    div.querySelectorAll('a[href]').forEach(a => {
+      const href = a.getAttribute('href');
+      if (!href || href.startsWith('#') || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(href)) return;
+      // Resolve relative path to absolute
+      let absPath = href;
+      if (dir) {
+        absPath = dir + '/' + href;
+      }
+      // Normalize
+      const parts = absPath.split('/').filter(Boolean);
+      const resolved = [];
+      for (const p of parts) {
+        if (p === '.') continue;
+        if (p === '..') { if (resolved.length > 0) resolved.pop(); continue; }
+        resolved.push(p);
+      }
+      a.setAttribute('href', '#/file/' + encodeURIComponent(resolved.join('/')));
+    });
 
     // Checkbox interaction
     div.querySelectorAll('input[type="checkbox"]').forEach((cb, i) => {
@@ -550,6 +688,24 @@
       const href = decodeURIComponent(a.getAttribute('href'));
       if (!href) return;
 
+      // Internal hash link (#/file/... or #/page/...) — may need manual trigger
+      if (href.startsWith('#/')) {
+        e.preventDefault();
+        // Build history from current pane
+        const pane = findPane(state.activeId);
+        const newHistory = (pane && pane.history) ? [...pane.history] : [];
+        if (pane && pane.path) {
+          newHistory.push({ path: pane.path, title: pane.title });
+        }
+        state.pendingHistory = newHistory;
+        if (window.location.hash === href) {
+          handleHashChange();
+        } else {
+          window.location.hash = href;
+        }
+        return;
+      }
+
       // Anchor: #section → let browser handle
       if (href.startsWith('#')) return;
 
@@ -559,24 +715,6 @@
         window.open(href, '_blank', 'noopener');
         return;
       }
-
-      // Local file: relative path → unipane route
-      e.preventDefault();
-      const pane = findPane(state.activeId);
-      let path = href;
-      if (pane && pane.type === 'file') {
-        const dir = pane.path.includes('/') ? pane.path.substring(0, pane.path.lastIndexOf('/')) : '';
-        path = dir ? dir + '/' + href : href;
-      }
-      // Normalize ./foo and ../bar
-      const parts = path.split('/').filter(Boolean);
-      const resolved = [];
-      for (const p of parts) {
-        if (p === '.') continue;
-        if (p === '..') { resolved.pop(); continue; }
-        resolved.push(p);
-      }
-      navigateTo('file', resolved.join('/'));
     });
 
     handleHashChange();

@@ -28,7 +28,13 @@ http://localhost:8000/.unipane/index.html
 - 自动扫描本地目录，展示文件树
 - 渲染 markdown、HTML、图片等文件
 - 标签页多开
-- 点击 markdown 内链接自动在标签页内打开
+- 目录视图（双击文件夹打开）
+- 隐藏文件切换（.* 按钮）
+
+**导航**
+- markdown 内链接自动在标签页内打开
+- 导航历史面包屑（点击可返回）
+- 侧边栏拖拽调整宽度、可隐藏
 
 **编辑**
 - markdown 文件：点"编辑"切换到源码模式，保存后自动刷新
@@ -38,10 +44,9 @@ http://localhost:8000/.unipane/index.html
 - 明暗主题切换（自动/亮/暗），跟随系统偏好
 - CSS 主题选择（default/github/notion），完整页面样式覆盖
 - 主题偏好保存在 localStorage
-- 侧边栏按钮：`.*` 隐藏文件、`Aa` CSS 主题、`◐` 明暗主题
 
 **移动端**
-- 局域网内手机可访问，自动响应式布局
+- 局域网内手机可访问
 
 ## 项目结构
 
@@ -91,7 +96,6 @@ unipane/                      ← 本仓库（引擎）
 - **theme** — 默认 CSS 主题（default/github/notion）
 - **css** — 自定义 CSS 文件路径（相对于 root，始终加载）
 - **sidebar.exclude** — 文件树排除的目录
-- **pages** — 自定义页面（可选）
 
 ## 文档
 

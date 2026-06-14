@@ -195,6 +195,20 @@ body {
   padding: 24px;
 }
 
+/* Directory list */
+.dir-list {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.dir-list .tree-item {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.dir-list .tree-item:last-child {
+  border-bottom: none;
+}
+
 /* Markdown styles */
 .md-content {
   line-height: 1.7;
