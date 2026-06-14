@@ -5,7 +5,13 @@ JSON 配置驱动的纯前端本地内容浏览器。打开即用，数据和显
 ## 快速开始
 
 ```bash
-# 1. 在你的数据目录下创建配置
+# 1. 安装依赖
+npm install
+
+# 2. 构建
+npm run build
+
+# 3. 在你的数据目录下创建配置
 mkdir -p .unipane
 cat > .unipane/config.json << 'EOF'
 {
@@ -15,11 +21,53 @@ cat > .unipane/config.json << 'EOF'
 }
 EOF
 
-# 2. 启动 serve
+# 4. 启动 serve
 python3 /path/to/unipane/serve.py
 
-# 3. 浏览器打开
+# 5. 浏览器打开
 http://localhost:8000/.unipane/index.html
+```
+
+## 项目结构
+
+```
+unipane/
+├── src/                        TypeScript 源码
+│   ├── main.ts                 入口
+│   ├── core/                   核心模块
+│   │   ├── types.ts            接口定义
+│   │   ├── api.ts              fetch 封装
+│   │   ├── router.ts           路由 + 标签页
+│   │   ├── sidebar.ts          文件树 + 导航
+│   │   └── theme.ts            主题切换
+│   └── plugins/                文件类型插件
+│       ├── markdown.ts         markdown 渲染、编辑、checkbox
+│       ├── directory.ts        目录视图
+│       ├── image.ts            图片渲染
+│       ├── html.ts             iframe 渲染
+│       └── raw.ts              纯文本兜底
+├── main.js                     构建产物（浏览器加载）
+├── index.html                  HTML shell
+├── serve.py                    HTTP server + API
+├── themes/                     CSS 主题
+│   ├── default.css
+│   ├── github.css
+│   └── notion.css
+├── package.json
+├── tsconfig.json
+└── docs/
+    ├── DESIGN.md               设计规格
+    └── NOTES.md                笔记
+```
+
+## 开发
+
+```bash
+# 监听模式，自动编译
+npm run watch
+
+# 一次性构建
+npm run build
 ```
 
 ## 功能
@@ -33,48 +81,19 @@ http://localhost:8000/.unipane/index.html
 
 **导航**
 - markdown 内链接自动在标签页内打开
-- 导航历史面包屑（点击可返回）
+- 导航历史面包屑
 - 侧边栏拖拽调整宽度、可隐藏
 
 **编辑**
-- markdown 文件：点"编辑"切换到源码模式，保存后自动刷新
-- checkbox：查看模式下直接点击切换 `[ ]` ↔ `[x]`，自动保存
+- markdown 编辑模式 + checkbox 直接点击
 
 **外观**
-- 明暗主题切换（自动/亮/暗），跟随系统偏好
-- CSS 主题选择（default/github/notion），完整页面样式覆盖
-- 主题偏好保存在 localStorage
-
-**移动端**
-- 局域网内手机可访问
-
-## 项目结构
-
-```
-unipane/                      ← 本仓库（引擎）
-├── README.md
-├── docs/
-│   ├── DESIGN.md             设计规格
-│   └── NOTES.md              灵感和待定想法
-├── themes/
-│   ├── default.css           默认主题
-│   ├── github.css            GitHub 风格
-│   └── notion.css            Notion 风格
-├── index.html                HTML shell
-├── main.js                   前端逻辑
-└── serve.py                  HTTP server + API
-
-用户数据目录/                  ← 你的数据
-├── .unipane/
-│   └── config.json           配置文件（唯一需要创建的文件）
-└── ...                       你的文件
-```
-
-引擎文件由 serve.py 自动提供，不需要复制到数据目录。
+- 明暗主题切换（自动/亮/暗）
+- CSS 主题（default/github/notion）
 
 ## 配置
 
-`.unipane/config.json` 示例：
+`.unipane/config.json`：
 
 ```json
 {
@@ -84,20 +103,25 @@ unipane/                      ← 本仓库（引擎）
   "theme": "github",
   "css": "my-style.css",
   "sidebar": {
-    "mode": "auto",
     "exclude": [".unipane", ".git"]
   }
 }
 ```
 
-- **title** — 浏览器标签标题
-- **root** — 数据根目录，相对于 config.json
-- **defaultPage** — 默认页面（文件路径或 pages 的 key）
-- **theme** — 默认 CSS 主题（default/github/notion）
-- **css** — 自定义 CSS 文件路径（相对于 root，始终加载）
-- **sidebar.exclude** — 文件树排除的目录
+## 插件系统
+
+每种文件类型由独立插件处理。插件接口：
+
+```typescript
+interface Plugin {
+  match(filepath: string): boolean
+  render(ctx: RenderContext): void
+}
+```
+
+添加新文件类型：在 `src/plugins/` 创建文件，实现接口，注册到 `src/main.ts`。
 
 ## 文档
 
-- [设计文档](docs/DESIGN.md) — 架构、概念、接口
-- [笔记](docs/NOTES.md) — 灵感和待定想法
+- [设计文档](docs/DESIGN.md)
+- [笔记](docs/NOTES.md)

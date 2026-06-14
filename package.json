@@ -1,0 +1,13 @@
+{
+  "name": "unipane",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --outfile=main.js --format=iife",
+    "watch": "esbuild src/main.ts --bundle --outfile=main.js --format=iife --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0",
+    "typescript": "^5.0.0"
+  }
+}

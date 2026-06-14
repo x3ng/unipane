@@ -201,12 +201,28 @@ def main():
             port = int(root_arg)
         else:
             ROOT = Path(root_arg).resolve()
+    else:
+        # Auto-detect: check .unipane/config.json in current directory
+        local_config = Path.cwd() / '.unipane' / 'config.json'
+        if local_config.exists():
+            try:
+                cfg = json.loads(local_config.read_text(encoding='utf-8'))
+                root_val = cfg.get('root')
+                if root_val:
+                    ROOT = (local_config.parent / root_val).resolve()
+            except (json.JSONDecodeError, OSError):
+                pass
 
     if not ROOT.exists():
         print(f"Error: root directory {ROOT} does not exist")
         sys.exit(1)
 
+    config_path = ROOT / '.unipane' / 'config.json'
+    has_config = config_path.exists()
+
     print(f"Serving {ROOT} at http://localhost:{port}")
+    if has_config:
+        print(f"Config: {config_path}")
     print(f"Open http://localhost:{port}/.unipane/index.html in browser")
 
     class ReusableHTTPServer(http.server.HTTPServer):

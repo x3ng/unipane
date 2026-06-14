@@ -145,6 +145,43 @@ body {
 .tree-children { padding-left: 16px; }
 .tree-children.collapsed { display: none; }
 
+/* Sidebar toggle button — lives outside sidebar so it's always visible */
+#toggle-sidebar {
+  flex-shrink: 0;
+  border: none;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 6px 4px;
+  font-size: 10px;
+  background: var(--bg-secondary);
+  cursor: pointer;
+  align-self: flex-start;
+}
+#toggle-sidebar:hover {
+  background: var(--bg-hover);
+}
+
+/* Sidebar resize handle */
+#sidebar-resize {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+#sidebar-resize:hover {
+  background: var(--link);
+}
+
+/* Sidebar hidden state */
+#sidebar.hidden {
+  display: none;
+}
+#sidebar.hidden + #toggle-sidebar + #sidebar-resize {
+  display: none;
+}
+
 /* Main area */
 #main {
   flex: 1;
