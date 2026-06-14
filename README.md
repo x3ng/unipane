@@ -22,12 +22,26 @@ python3 /path/to/unipane/serve.py
 http://localhost:8000/.unipane/index.html
 ```
 
-## 它做什么
+## 功能
 
+**浏览**
 - 自动扫描本地目录，展示文件树
 - 渲染 markdown、HTML、图片等文件
-- 通过 config.json 自定义首页和页面结构
-- 支持标签页多开
+- 标签页多开
+- 点击 markdown 内链接自动在标签页内打开
+
+**编辑**
+- markdown 文件：点"编辑"切换到源码模式，保存后自动刷新
+- checkbox：查看模式下直接点击切换 `[ ]` ↔ `[x]`，自动保存
+
+**外观**
+- 明暗主题切换（自动/亮/暗），跟随系统偏好
+- CSS 主题选择（default/github/notion），完整页面样式覆盖
+- 主题偏好保存在 localStorage
+- 侧边栏按钮：`.*` 隐藏文件、`Aa` CSS 主题、`◐` 明暗主题
+
+**移动端**
+- 局域网内手机可访问，自动响应式布局
 
 ## 项目结构
 
@@ -37,6 +51,10 @@ unipane/                      ← 本仓库（引擎）
 ├── docs/
 │   ├── DESIGN.md             设计规格
 │   └── NOTES.md              灵感和待定想法
+├── themes/
+│   ├── default.css           默认主题
+│   ├── github.css            GitHub 风格
+│   └── notion.css            Notion 风格
 ├── index.html                HTML shell
 ├── main.js                   前端逻辑
 └── serve.py                  HTTP server + API
@@ -58,18 +76,11 @@ unipane/                      ← 本仓库（引擎）
   "title": "My Notes",
   "root": "..",
   "defaultPage": "README.md",
+  "theme": "github",
+  "css": "my-style.css",
   "sidebar": {
     "mode": "auto",
     "exclude": [".unipane", ".git"]
-  },
-  "pages": {
-    "home": {
-      "title": "首页",
-      "layout": "grid",
-      "widgets": [
-        {"type": "md", "source": "README.md"}
-      ]
-    }
   }
 }
 ```
@@ -77,6 +88,8 @@ unipane/                      ← 本仓库（引擎）
 - **title** — 浏览器标签标题
 - **root** — 数据根目录，相对于 config.json
 - **defaultPage** — 默认页面（文件路径或 pages 的 key）
+- **theme** — 默认 CSS 主题（default/github/notion）
+- **css** — 自定义 CSS 文件路径（相对于 root，始终加载）
 - **sidebar.exclude** — 文件树排除的目录
 - **pages** — 自定义页面（可选）
 

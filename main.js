@@ -267,10 +267,7 @@
       const text = await resp.text();
 
       if (pane.path.endsWith('.md')) {
-        const div = document.createElement('div');
-        div.className = 'md-content';
-        div.innerHTML = marked.parse(text);
-        container.appendChild(div);
+        renderMarkdownView(container, pane.path, text);
       } else {
         const pre = document.createElement('pre');
         pre.textContent = text;
@@ -279,6 +276,96 @@
     } catch (e) {
       container.textContent = 'Error: ' + e.message;
     }
+  }
+
+  function renderMarkdownView(container, filePath, text) {
+    // Toolbar
+    const toolbar = document.createElement('div');
+    toolbar.style.cssText = 'margin-bottom:12px;display:flex;gap:8px;';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'sidebar-btn';
+    editBtn.textContent = '编辑';
+    toolbar.appendChild(editBtn);
+    container.appendChild(toolbar);
+
+    // Content
+    const div = document.createElement('div');
+    div.className = 'md-content';
+    div.innerHTML = marked.parse(text);
+    container.appendChild(div);
+
+    // Checkbox interaction
+    div.querySelectorAll('input[type="checkbox"]').forEach((cb, i) => {
+      cb.disabled = false;
+      cb.style.cursor = 'pointer';
+      cb.addEventListener('change', () => {
+        const lines = text.split('\n');
+        let count = 0;
+        for (let j = 0; j < lines.length; j++) {
+          if (/^\s*-\s*\[[ x]\]/.test(lines[j])) {
+            if (count === i) {
+              lines[j] = cb.checked
+                ? lines[j].replace('[ ]', '[x]')
+                : lines[j].replace('[x]', '[ ]');
+              break;
+            }
+            count++;
+          }
+        }
+        text = lines.join('\n');
+        saveFile(filePath, text);
+      });
+    });
+
+    // Edit mode
+    editBtn.addEventListener('click', () => {
+      container.innerHTML = '';
+      renderMarkdownEditor(container, filePath, text);
+    });
+  }
+
+  function renderMarkdownEditor(container, filePath, text) {
+    const toolbar = document.createElement('div');
+    toolbar.style.cssText = 'margin-bottom:12px;display:flex;gap:8px;';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'sidebar-btn active';
+    saveBtn.textContent = '保存';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'sidebar-btn';
+    cancelBtn.textContent = '取消';
+
+    toolbar.appendChild(saveBtn);
+    toolbar.appendChild(cancelBtn);
+    container.appendChild(toolbar);
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.cssText = 'width:100%;height:calc(100vh - 160px);padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:1.6;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);resize:vertical;';
+    container.appendChild(textarea);
+    textarea.focus();
+
+    saveBtn.addEventListener('click', async () => {
+      const newText = textarea.value;
+      await saveFile(filePath, newText);
+      container.innerHTML = '';
+      renderMarkdownView(container, filePath, newText);
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      container.innerHTML = '';
+      renderMarkdownView(container, filePath, text);
+    });
+  }
+
+  async function saveFile(path, content) {
+    await fetch('/api/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, content }),
+    });
   }
 
   async function renderPageContent(container, pane) {
