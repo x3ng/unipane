@@ -13,7 +13,7 @@ ENGINE = Path(__file__).parent  # Where serve.py / index.html / main.js live
 EXCLUDE = {'.unipane', '.git', '__pycache__', 'node_modules'}
 
 
-def scan_tree(root: Path, prefix: str = '') -> list:
+def scan_tree(root: Path, prefix: str = '', show_hidden: bool = False) -> list:
     """Scan directory and return tree structure."""
     items = []
     try:
@@ -22,7 +22,9 @@ def scan_tree(root: Path, prefix: str = '') -> list:
         return items
 
     for entry in entries:
-        if entry.name in EXCLUDE or entry.name.startswith('.'):
+        if entry.name in EXCLUDE:
+            continue
+        if not show_hidden and entry.name.startswith('.'):
             continue
         rel = f"{prefix}/{entry.name}" if prefix else entry.name
         if entry.is_dir():
@@ -30,7 +32,7 @@ def scan_tree(root: Path, prefix: str = '') -> list:
                 'name': entry.name,
                 'path': rel,
                 'type': 'dir',
-                'children': scan_tree(entry, rel),
+                'children': scan_tree(entry, rel, show_hidden),
             })
         else:
             items.append({
@@ -59,7 +61,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == '/api/tree':
-            self._handle_tree()
+            self._handle_tree(parsed.query)
         elif parsed.path.startswith('/.unipane/'):
             # config.json from user data, everything else from engine
             if parsed.path == '/.unipane/config.json':
@@ -114,8 +116,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _handle_tree(self):
-        tree = scan_tree(ROOT)
+    def _handle_tree(self, query: str = ''):
+        params = parse_qs(query)
+        show_hidden = params.get('hidden', ['false'])[0].lower() == 'true'
+        tree = scan_tree(ROOT, show_hidden=show_hidden)
         data = json.dumps(tree, ensure_ascii=False).encode()
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')

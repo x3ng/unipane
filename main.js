@@ -22,6 +22,7 @@
     panes: [],        // { id, type, path, title, el }
     activeId: null,
     tree: null,
+    showHidden: false,
   };
 
   // ─── Router ──────────────────────────────────────────────
@@ -74,7 +75,8 @@
   }
 
   async function loadFileTree() {
-    const resp = await fetch(bust('/api/tree'));
+    const url = '/api/tree' + (state.showHidden ? '?hidden=true' : '');
+    const resp = await fetch(bust(url));
     if (!resp.ok) return;
     state.tree = await resp.json();
     renderFileTree();
@@ -379,6 +381,37 @@
 
     renderSidebarNav();
     loadFileTree();
+
+    // Toggle hidden files
+    document.getElementById('toggle-hidden').addEventListener('click', () => {
+      state.showHidden = !state.showHidden;
+      document.getElementById('toggle-hidden').classList.toggle('active', state.showHidden);
+      loadFileTree();
+    });
+
+    // Theme toggle: auto → light → dark → auto
+    const themeBtn = document.getElementById('toggle-theme');
+    const saved = localStorage.getItem('unipane-theme');
+    if (saved) document.documentElement.dataset.theme = saved;
+
+    function updateThemeBtn() {
+      const t = document.documentElement.dataset.theme;
+      themeBtn.textContent = t === 'light' ? '☀' : t === 'dark' ? '☾' : '◐';
+    }
+    updateThemeBtn();
+
+    themeBtn.addEventListener('click', () => {
+      const cur = document.documentElement.dataset.theme;
+      const next = cur === 'light' ? 'dark' : cur === 'dark' ? '' : 'light';
+      if (next) {
+        document.documentElement.dataset.theme = next;
+        localStorage.setItem('unipane-theme', next);
+      } else {
+        delete document.documentElement.dataset.theme;
+        localStorage.removeItem('unipane-theme');
+      }
+      updateThemeBtn();
+    });
 
     window.addEventListener('hashchange', handleHashChange);
 
