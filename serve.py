@@ -92,14 +92,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         content_type = 'application/json' if target.suffix == '.json' else 'text/plain'
         data = target.read_bytes()
-        self.send_response(200)
-        self.send_header('Content-Type', content_type)
-        self.send_header('Content-Length', str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(200)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except BrokenPipeError:
+            pass
 
     def _serve_engine(self, path: str):
-        """Serve engine files (index.html, main.js) from the project directory."""
+        """Serve engine files (index.html, main.js, themes/) from the project directory."""
         rel = path[len('/.unipane/'):]  # Strip prefix
         if not rel or rel == '/':
             rel = 'index.html'
@@ -108,24 +111,36 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(404)
             return
 
-        content_type = 'text/html' if target.suffix == '.html' else 'application/javascript'
+        content_types = {
+            '.html': 'text/html',
+            '.js': 'application/javascript',
+            '.css': 'text/css',
+            '.json': 'application/json',
+        }
+        content_type = content_types.get(target.suffix, 'text/plain')
         data = target.read_bytes()
-        self.send_response(200)
-        self.send_header('Content-Type', content_type)
-        self.send_header('Content-Length', str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(200)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except BrokenPipeError:
+            pass
 
     def _handle_tree(self, query: str = ''):
         params = parse_qs(query)
         show_hidden = params.get('hidden', ['false'])[0].lower() == 'true'
         tree = scan_tree(ROOT, show_hidden=show_hidden)
         data = json.dumps(tree, ensure_ascii=False).encode()
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except BrokenPipeError:
+            pass
 
     def _handle_write(self):
         length = int(self.headers.get('Content-Length', 0))
@@ -141,10 +156,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding='utf-8')
 
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(b'{"ok":true}')
+        try:
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"ok":true}')
+        except BrokenPipeError:
+            pass
 
     def _handle_delete(self, query: str):
         params = parse_qs(query)
@@ -163,10 +181,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         else:
             target.unlink()
 
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(b'{"ok":true}')
+        try:
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"ok":true}')
+        except BrokenPipeError:
+            pass
 
 
 def main():

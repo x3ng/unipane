@@ -379,6 +379,14 @@
 
     document.title = config.title || 'Unipane';
 
+    // Load custom CSS (user's own CSS file, always applied)
+    if (config.css) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = bust(root + '/' + config.css);
+      document.head.appendChild(link);
+    }
+
     renderSidebarNav();
     loadFileTree();
 
@@ -411,6 +419,39 @@
         localStorage.removeItem('unipane-theme');
       }
       updateThemeBtn();
+    });
+
+    // CSS theme toggle: default → github → notion → default
+    const THEMES = ['default', 'github', 'notion'];
+    const cssBtn = document.getElementById('toggle-css');
+    let currentCss = localStorage.getItem('unipane-css') || config.theme || 'default';
+    let themeLink = null;
+
+    // Always load default.css as base
+    const baseLink = document.createElement('link');
+    baseLink.rel = 'stylesheet';
+    baseLink.href = bust('/.unipane/themes/default.css');
+    document.head.appendChild(baseLink);
+
+    function applyCssTheme(name) {
+      if (themeLink) themeLink.remove();
+      if (name && name !== 'default') {
+        themeLink = document.createElement('link');
+        themeLink.rel = 'stylesheet';
+        themeLink.href = bust('/.unipane/themes/' + name + '.css');
+        document.head.appendChild(themeLink);
+      }
+      cssBtn.textContent = name === 'default' ? 'Aa' : name;
+      cssBtn.classList.toggle('active', name !== 'default');
+    }
+
+    applyCssTheme(currentCss);
+
+    cssBtn.addEventListener('click', () => {
+      const idx = THEMES.indexOf(currentCss);
+      currentCss = THEMES[(idx + 1) % THEMES.length];
+      localStorage.setItem('unipane-css', currentCss);
+      applyCssTheme(currentCss);
     });
 
     window.addEventListener('hashchange', handleHashChange);
