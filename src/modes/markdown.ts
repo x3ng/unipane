@@ -6,6 +6,7 @@ import type { Buffer } from '../core/buffer'
 import type { App } from '../core/app'
 
 declare const marked: { parse(src: string): string }
+declare const DOMPurify: { sanitize(html: string): string }
 
 export const markdownMode: Mode = {
   name: 'markdown',
@@ -48,7 +49,7 @@ export const markdownMode: Mode = {
 function renderMarkdownView(ctx: ModeContext, content: string) {
   const div = document.createElement('div')
   div.className = 'markdown-body'
-  div.innerHTML = marked.parse(content)
+  div.innerHTML = DOMPurify.sanitize(marked.parse(content))
   fixLinks(div, ctx.buffer.path)
   setupCheckboxes(div, ctx.buffer.path, ctx)
   ctx.container.appendChild(div)

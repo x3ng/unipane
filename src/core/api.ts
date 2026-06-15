@@ -19,11 +19,14 @@ export async function fetchTree(showHidden = false): Promise<TreeItem[]> {
 }
 
 export async function saveFile(path: string, content: string): Promise<void> {
-  await fetch('/api/file', {
+  const resp = await fetch('/api/file', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, content }),
   })
+  if (!resp.ok) {
+    throw new Error(`Failed to save: ${resp.status}`)
+  }
 }
 
 export { bust }

@@ -29,9 +29,12 @@ async function main() {
   // 初始化 App
   try {
     await app.init()
-  } catch (e: any) {
-    document.getElementById('app')!.innerHTML =
-      `<div class="welcome"><h2>Error</h2><p>${e.message}</p></div>`
+  } catch (e: unknown) {
+    const appEl = document.getElementById('app')
+    if (appEl) {
+      const msg = e instanceof Error ? e.message : String(e)
+      appEl.textContent = `Error: ${msg}`
+    }
     return
   }
 
@@ -67,16 +70,19 @@ async function main() {
   router.init()
 
   // 内部链接处理
-  document.getElementById('app')!.addEventListener('click', (e) => {
-    const a = (e.target as HTMLElement).closest('a')
-    if (!a) return
-    const href = a.getAttribute('href')
-    if (href && href.startsWith('#/')) {
-      e.preventDefault()
-      const path = decodeURIComponent(href.replace('#/file/', ''))
-      app.openFile(path)
-    }
-  })
+  const appEl = document.getElementById('app')
+  if (appEl) {
+    appEl.addEventListener('click', (e) => {
+      const a = (e.target as HTMLElement).closest('a')
+      if (!a) return
+      const href = a.getAttribute('href')
+      if (href && href.startsWith('#/')) {
+        e.preventDefault()
+        const path = decodeURIComponent(href.replace('#/file/', ''))
+        app.openFile(path)
+      }
+    })
+  }
 }
 
 function setupToolbar(app: App) {

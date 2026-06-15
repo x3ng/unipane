@@ -220,11 +220,14 @@
     return resp.json();
   }
   async function saveFile(path, content) {
-    await fetch("/api/file", {
+    const resp = await fetch("/api/file", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path, content })
     });
+    if (!resp.ok) {
+      throw new Error(`Failed to save: ${resp.status}`);
+    }
   }
 
   // src/core/app.ts
@@ -492,7 +495,7 @@
   function renderMarkdownView(ctx, content) {
     const div = document.createElement("div");
     div.className = "markdown-body";
-    div.innerHTML = marked.parse(content);
+    div.innerHTML = DOMPurify.sanitize(marked.parse(content));
     fixLinks(div, ctx.buffer.path);
     setupCheckboxes(div, ctx.buffer.path, ctx);
     ctx.container.appendChild(div);
@@ -826,7 +829,11 @@
     try {
       await app.init();
     } catch (e) {
-      document.getElementById("app").innerHTML = `<div class="welcome"><h2>Error</h2><p>${e.message}</p></div>`;
+      const appEl2 = document.getElementById("app");
+      if (appEl2) {
+        const msg = e instanceof Error ? e.message : String(e);
+        appEl2.textContent = `Error: ${msg}`;
+      }
       return;
     }
     theme.init(app.config || {});
@@ -851,17 +858,20 @@
     }
     const router = new Router(app);
     router.init();
-    document.getElementById("app").addEventListener("click", (e) => {
-      const a = e.target.closest("a");
-      if (!a)
-        return;
-      const href = a.getAttribute("href");
-      if (href && href.startsWith("#/")) {
-        e.preventDefault();
-        const path = decodeURIComponent(href.replace("#/file/", ""));
-        app.openFile(path);
-      }
-    });
+    const appEl = document.getElementById("app");
+    if (appEl) {
+      appEl.addEventListener("click", (e) => {
+        const a = e.target.closest("a");
+        if (!a)
+          return;
+        const href = a.getAttribute("href");
+        if (href && href.startsWith("#/")) {
+          e.preventDefault();
+          const path = decodeURIComponent(href.replace("#/file/", ""));
+          app.openFile(path);
+        }
+      });
+    }
   }
   function setupToolbar(app) {
     const currentBuffer = document.getElementById("current-buffer");
