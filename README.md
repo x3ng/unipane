@@ -1,6 +1,6 @@
 # Unipane
 
-JSON 配置驱动的纯前端本地内容浏览器。打开即用，数据和显示完全分离。
+JSON 配置驱动的纯前端本地内容浏览器。采用 Pane / Buffer / Mode 三层架构，参考 Emacs 设计哲学。
 
 ## 快速开始
 
@@ -28,42 +28,54 @@ python3 /path/to/unipane/serve.py
 http://localhost:8000/.unipane/index.html
 ```
 
+## 架构
+
+**Buffer 为中心**：所有内容都是 Buffer，Pane 只是布局容器。
+
+```
+[Mode 按钮] [当前文件名] ←→ [Buffer 列表 ×] [Aa] [◐]
+┌─────────────────────────────────────────────────────┐
+│ SidePane (20%)  │ MainPane (80%)                    │
+│ 目录树          │ 文件内容                          │
+│                 │                                   │
+└─────────────────────────────────────────────────────┘
+```
+
 ## 项目结构
 
 ```
 unipane/
 ├── src/                        TypeScript 源码
 │   ├── main.ts                 入口
-│   ├── core/                   核心模块
-│   │   ├── types.ts            接口定义
-│   │   ├── api.ts              fetch 封装
-│   │   ├── router.ts           路由 + 标签页
-│   │   ├── sidebar.ts          文件树 + 导航
-│   │   └── theme.ts            主题切换
-│   └── plugins/                文件类型插件
-│       ├── markdown.ts         markdown 渲染、编辑、checkbox
-│       ├── directory.ts        目录视图
-│       ├── image.ts            图片渲染
-│       ├── html.ts             iframe 渲染
-│       └── raw.ts              纯文本兜底
-├── main.js                     构建产物（浏览器加载）
+│   ├── core/                   框架层
+│   │   ├── app.ts              App 编排器
+│   │   ├── pane.ts             Pane 分割和 resize
+│   │   ├── buffer.ts           Buffer 类
+│   │   ├── mode-registry.ts    Mode 注册表
+│   │   ├── router.ts           URL hash 路由
+│   │   ├── events.ts           EventBus
+│   │   ├── api.ts              HTTP API 封装
+│   │   ├── theme.ts            主题管理
+│   │   ├── util.ts             工具函数
+│   │   └── types.ts            类型定义
+│   └── modes/                  渲染 Mode
+│       ├── markdown.ts         Markdown 渲染和编辑
+│       ├── directory.ts        树形目录视图
+│       ├── image.ts            图片显示
+│       ├── html.ts             HTML iframe
+│       ├── raw.ts              纯文本兜底
+│       └── buffer-list.ts      Buffer 列表
+├── main.js                     构建产物
 ├── index.html                  HTML shell
 ├── serve.py                    HTTP server + API
 ├── themes/                     CSS 主题
-│   ├── default.css
-│   ├── github.css
-│   └── notion.css
-├── package.json
-├── tsconfig.json
-└── docs/
-    ├── DESIGN.md               设计规格
-    └── NOTES.md                笔记
+└── docs/                       设计文档
 ```
 
 ## 开发
 
 ```bash
-# 监听模式，自动编译
+# 监听模式
 npm run watch
 
 # 一次性构建
@@ -73,22 +85,21 @@ npm run build
 ## 功能
 
 **浏览**
-- 自动扫描本地目录，展示文件树
-- 渲染 markdown、HTML、图片等文件
-- 标签页多开
-- 目录视图（双击文件夹打开）
+- 树形目录视图（展开/折叠）
 - 隐藏文件切换（.* 按钮）
-
-**导航**
-- markdown 内链接自动在标签页内打开
-- 导航历史面包屑
-- 侧边栏拖拽调整宽度、可隐藏
+- Markdown、HTML、图片渲染
 
 **编辑**
-- markdown 编辑模式 + checkbox 直接点击
+- Markdown 编辑模式
+- Checkbox 直接点击切换
+
+**布局**
+- 左右分栏（侧边栏 + 主区域）
+- 拖拽调整分割比例
+- 聚焦切换（点击 Pane 更新工具栏）
 
 **外观**
-- 明暗主题切换（自动/亮/暗）
+- 明暗主题切换
 - CSS 主题（default/github/notion）
 
 ## 配置
@@ -101,27 +112,14 @@ npm run build
   "root": "..",
   "defaultPage": "README.md",
   "theme": "github",
-  "css": "my-style.css",
-  "sidebar": {
-    "exclude": [".unipane", ".git"]
-  }
+  "css": "my-style.css"
 }
 ```
-
-## 插件系统
-
-每种文件类型由独立插件处理。插件接口：
-
-```typescript
-interface Plugin {
-  match(filepath: string): boolean
-  render(ctx: RenderContext): void
-}
-```
-
-添加新文件类型：在 `src/plugins/` 创建文件，实现接口，注册到 `src/main.ts`。
 
 ## 文档
 
 - [设计文档](docs/DESIGN.md)
-- [笔记](docs/NOTES.md)
+- [架构详解](docs/design/architecture.md)
+- [Buffer Viewer 模型](docs/design/buffer-viewer.md)
+- [Mode 系统](docs/design/modes.md)
+- [路线图](docs/design/roadmap.md)

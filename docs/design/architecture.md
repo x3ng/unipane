@@ -1,161 +1,112 @@
-# 技术架构
+# 架构设计
 
-## 目录结构
+## 核心概念
 
-```
-unipane/
-├── src/                        TypeScript 源码
-│   ├── main.ts                 入口：注册 Plugin、初始化模块、绑定事件
-│   ├── core/                   核心模块
-│   │   ├── types.ts            接口定义（Plugin, Pane, Config, TreeItem...）
-│   │   ├── api.ts              Fetch 封装（config, tree, file, save）
-│   │   ├── router.ts           Hash 路由 + Pane 管理
-│   │   ├── sidebar.ts          文件树渲染、导航、resize
-│   │   └── theme.ts            明暗模式 + CSS 主题切换
-│   └── plugins/                Mode（渲染器）
-│       ├── markdown.ts         Markdown 渲染、编辑、checkbox
-│       ├── directory.ts        目录列表
-│       ├── image.ts            图片显示
-│       ├── html.ts             HTML iframe
-│       └── raw.ts              纯文本兜底
-├── main.js                     esbuild 编译输出（IIFE bundle）
-├── index.html                  HTML shell
-├── serve.py                    Python HTTP server + API
-├── themes/                     CSS 主题
-│   ├── default.css             基础主题（始终加载）
-│   ├── github.css              GitHub 风格叠加
-│   └── notion.css              Notion 风格叠加
-├── docs/
-│   ├── design/                 设计文档（详细）
-│   ├── DESIGN.md               设计总览
-│   └── NOTES.md                开发笔记
-├── package.json                构建脚本 + 依赖
-└── tsconfig.json               TypeScript 配置
-```
+**Buffer 为中心**：所有内容都是 Buffer，Pane 只是布局容器。
 
----
+| 概念 | 定义 |
+|------|------|
+| **Pane** | 显示容器，可嵌套分割，每个叶子 Pane 显示一个 Buffer |
+| **Buffer** | 内容实例（路径 + Mode + 状态），独立于显示 |
+| **Mode** | 渲染处理器，接收 Buffer 渲染到 Pane |
 
 ## 模块职责
 
-### `core/types.ts` — 接口定义
+### Core（框架层）
 
-所有模块共享的类型。Plugin 接口、Pane 状态、Config 结构、TreeItem 等。
-
-### `core/api.ts` — 数据访问
-
-四个 fetch 函数，都带 cache-busting 时间戳：
-
-- `fetchConfig()` → GET `./config.json`
-- `fetchTree(showHidden)` → GET `/api/tree`
-- `fetchFile(path)` → GET 文件路径
-- `saveFile(path, content)` → POST `/api/file`
-
-### `core/router.ts` — 路由 + Pane 管理
-
-Router 类负责：
-
-- Hash 路由解析：`#/`, `#/file/<path>`, `#/page/<pageId>`
-- Pane 数组管理：创建、查找、激活、关闭
-- 导航历史（pendingHistory）传递
-- 两个回调：`onPaneChange`（重绘标签栏）、`onContentRender`（重绘内容区）
-
-关键流程：
-1. 用户点击 → `navigateTo(type, value, history?)`
-2. 设置 `window.location.hash` → 触发 `hashchange`
-3. `handleHashChange` → `openFile` / `openPage` / `openDefault`
-4. `activatePane` → 回调渲染
-
-### `core/sidebar.ts` — 侧边栏
-
-- 渲染 config 定义的页面导航（sidebar-nav 区域）
-- 获取并渲染文件树（递归 createTreeNode，单击展开/折叠，双击打开目录视图）
-- 隐藏文件切换（.* 按钮，切换 showHidden 重新 fetch tree）
-- 侧边栏宽度拖拽（`#sidebar-resize` 元素，宽度存 localStorage）
-- 侧边栏隐藏/显示（`#toggle-sidebar` 按钮，位于 sidebar 外部以保证收起后仍可点击）
-
-### `core/theme.ts` — 主题
-
-- 始终加载 `themes/default.css`
-- 叠加 CSS 主题（github/notion）
-- 明暗模式切换（`data-theme` 属性 + CSS 变量）
-- localStorage 持久化偏好
-
----
-
-## Plugin 系统
-
-Plugin 注册顺序决定优先级（first match wins）：
-
-```typescript
-const plugins: Plugin[] = [
-  directoryPlugin,   // 路径以 / 结尾
-  imagePlugin,       // 图片扩展名
-  htmlPlugin,        // .html/.htm
-  markdownPlugin,    // .md
-  rawPlugin,         // 兜底
-]
-```
-
-Plugin 通过 `match(filepath)` 声明自己处理哪些文件，通过 `render(ctx)` 渲染内容。
-
-详见 [plugins.md](./plugins.md)。
-
----
-
-## serve.py 职责
-
-### 文件服务
-
-- 用户数据文件：从 ROOT 目录提供
-- 引擎文件（index.html, main.js, themes/）：从 ENGINE 目录（serve.py 所在目录）提供
-- `/.unipane/config.json`：特殊路由，从 ROOT 提供（用户配置）
-
-### API 端点
-
-| 方法 | 路径 | 功能 |
+| 模块 | 文件 | 职责 |
 |------|------|------|
-| GET | `/api/tree?hidden=true` | 返回目录结构 JSON |
-| POST | `/api/file` | 创建/写入文件（JSON body: `{path, content}`） |
-| DELETE | `/api/file?path=...` | 删除文件 |
+| **App** | `app.ts` | 顶层编排器。持有 Pane、Buffer、ModeRegistry、EventBus。管理 Buffer 生命周期，跟踪聚焦 Pane |
+| **Pane** | `pane.ts` | 显示容器。递归结构：叶子节点显示 Buffer，分支节点分割为子 Pane。支持水平/垂直分割、拖拽 resize |
+| **Buffer** | `buffer.ts` | 内容实例。持有路径、绑定的 Mode、运行时状态（showHidden 等）。同一文件只创建一个 Buffer |
+| **ModeRegistry** | `mode-registry.ts` | Mode 注册表。按顺序匹配文件路径，返回对应 Mode |
+| **Router** | `router.ts` | URL hash 路由。解析 `#/file/<path>` 调用 `app.openFile()` |
+| **EventBus** | `events.ts` | 简单 pub/sub。支持事件：buffer-changed、buffer-created、buffer-closed、focus-changed |
+| **ThemeManager** | `theme.ts` | 明暗主题 + CSS 主题切换 |
+| **API** | `api.ts` | HTTP 封装：fetchConfig、fetchTree、saveFile |
 
-### Root 检测
+### Modes（渲染层）
 
-1. CLI 参数指定 → 使用参数
-2. 无参数 → 检查当前目录 `.unipane/config.json` → 读取 `root` 字段
-3. 无 config → 使用当前目录
+| Mode | 文件 | 匹配规则 | 功能 |
+|------|------|----------|------|
+| **directory** | `directory.ts` | 路径以 `/` 结尾 | 树形目录视图，展开/折叠，隐藏文件切换 |
+| **markdown** | `markdown.ts` | `.md` / `.markdown` | Markdown 渲染，编辑模式，checkbox 交互 |
+| **image** | `image.ts` | `.png` / `.jpg` / `.jpeg` / `.gif` / `.svg` / `.webp` / `.ico` | 图片显示 |
+| **html** | `html.ts` | `.html` / `.htm` | iframe 沙盒渲染 |
+| **raw** | `raw.ts` | 兜底 | 纯文本显示 |
+| **buffer-list** | `buffer-list.ts` | `##buffers` | Buffer 列表视图 |
 
-### 安全边界
+## 工具栏设计
 
-- 只操作 ROOT 目录内的文件
-- 拒绝 ROOT 之外的路径请求
-- `BrokenPipeError` 优雅处理
+统一工具栏，左边 Mode 按钮，右边全局按钮：
 
----
-
-## 构建
-
-使用 esbuild 将 TypeScript 模块打包为单个 IIFE bundle：
-
-```bash
-npm run build   # esbuild src/main.ts --bundle --outfile=main.js --format=iife
-npm run watch   # 同上 + --watch 模式
+```
+[Mode 按钮] [当前文件名] ←→ [Buffer 列表 ×] [Aa] [◐]
 ```
 
-输出 `main.js` 是浏览器直接加载的文件。无需运行时框架依赖。
+- **Mode 按钮**：由 `mode.renderToolbar()` 渲染，绑定到当前聚焦的 Buffer
+  - directory: `.*` 隐藏文件切换
+  - markdown: 编辑按钮
+- **Buffer 列表**：显示所有打开的 Buffer，可点击切换，可关闭
+- **全局按钮**：主题切换、明暗切换
 
----
+## 聚焦机制
+
+- `app.focusedPane` 跟踪当前聚焦的 Pane
+- 点击 Pane 时更新聚焦
+- 工具栏显示聚焦 Pane 的 Buffer 的 Mode 按钮
+- 目录 Mode 中：
+  - 点击文件 → 在主 Pane 打开
+  - 点击目录 → 在当前 Pane 导航
 
 ## 启动流程
 
 ```
-1. python3 serve.py [目录]          启动 HTTP server
-2. serve.py 扫描 ROOT 生成文件树
-3. 浏览器打开 /.unipane/index.html
-4. index.html 加载 marked.js (CDN) + main.js
-5. main.ts → fetchConfig()          加载配置
-6. main.ts → 初始化 Router/Theme/Sidebar
-7. sidebar.init() → fetchTree()     构建文件树
-8. router.init() → handleHashChange 解析 URL hash
-9. 渲染默认页面或指定文件
-10. 用户交互 → 路由切换 → Plugin 渲染
+main.ts
+  → new App()
+  → register modes (directory, image, html, markdown, buffer-list, raw)
+  → new ThemeManager()
+  → app.init()
+      → fetchConfig() → load .unipane/config.json
+      → fetchTree()   → load file tree from server
+      → rootPane.split('horizontal', 0.2) → [sidePane, mainPane]
+      → renderPane(sidePane, '/', 'directory')
+      → renderPane(mainPane, defaultPage)
+      → focusedPane = mainPane
+      → updateModeToolbar(mainPane.buffer)
+      → mount rootPane to #app
+  → setupToolbar(app) → 绑定 Buffer 列表更新
+  → theme.init(config)
+  → bind theme buttons
+  → new Router(app).init()
 ```
+
+## 数据流
+
+```
+用户点击文件 → openFile(path, pane)
+  → Buffer 已存在？切换 : 创建新 Buffer
+  → pane.showBuffer(buffer)
+  → Mode.render(ctx)
+  → 渲染到 pane.contentEl
+  → emit('buffer-changed')
+  → updateModeToolbar(buffer)
+```
+
+## Pane 布局
+
+```
+RootPane (horizontal)
+├── SidePane (20%) → directory Buffer（树形视图）
+└── MainPane (80%) → 文件内容 Buffer
+```
+
+## 技术选型
+
+| 技术 | 用途 | 原因 |
+|------|------|------|
+| TypeScript | 核心语言 | 类型安全，模块化 |
+| esbuild | 打包 | 极速，零配置 |
+| IIFE 格式 | 输出 | 浏览器直接加载，无需模块系统 |
+| marked (CDN) | Markdown | 轻量，浏览器端渲染 |
+| Python | HTTP 服务器 | serve.py 提供 API 和静态文件 |

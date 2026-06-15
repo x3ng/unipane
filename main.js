@@ -1,5 +1,209 @@
 "use strict";
 (() => {
+  // src/core/pane.ts
+  var paneId = 0;
+  var Pane = class _Pane {
+    // buffer 渲染容器
+    constructor(parent = null) {
+      this.children = null;
+      this.direction = null;
+      this.ratio = 1;
+      this.buffer = null;
+      this.contentEl = null;
+      this.id = `pane-${++paneId}`;
+      this.parent = parent;
+      this.element = document.createElement("div");
+      this.element.className = "pane";
+      this.element.dataset.paneId = this.id;
+    }
+    get isLeaf() {
+      return this.children === null;
+    }
+    /** 分割当前 Pane，返回两个子 Pane */
+    split(dir, ratio = 0.5) {
+      if (!this.isLeaf)
+        throw new Error("Cannot split a non-leaf pane");
+      const savedBuffer = this.buffer;
+      this.buffer = null;
+      this.contentEl = null;
+      const left = new _Pane(this);
+      const right = new _Pane(this);
+      left.ratio = ratio;
+      right.ratio = 1 - ratio;
+      this.children = [left, right];
+      this.direction = dir;
+      this.element.innerHTML = "";
+      this.element.classList.add("pane-split");
+      this.element.style.display = "flex";
+      this.element.style.flexDirection = dir === "horizontal" ? "row" : "column";
+      left.element.style.flex = `${ratio}`;
+      right.element.style.flex = `${1 - ratio}`;
+      this.element.appendChild(left.element);
+      const handle = document.createElement("div");
+      handle.className = "pane-resize-handle";
+      handle.style.flexShrink = "0";
+      this.setupResizeHandle(handle, left, right);
+      this.element.appendChild(handle);
+      this.element.appendChild(right.element);
+      if (savedBuffer) {
+        left.showBuffer(savedBuffer, () => {
+        });
+      }
+      return [left, right];
+    }
+    /** 显示 Buffer，render 回调负责实际渲染 */
+    showBuffer(buffer, render) {
+      this.buffer = buffer;
+      this.element.innerHTML = "";
+      this.element.className = "pane";
+      const container = document.createElement("div");
+      container.className = "buffer-content";
+      this.contentEl = container;
+      this.element.appendChild(container);
+      render(container);
+    }
+    /** 清除 Buffer，显示空白 */
+    clearBuffer() {
+      this.buffer = null;
+      this.element.innerHTML = "";
+      this.element.className = "pane";
+      this.contentEl = null;
+    }
+    /** 关闭当前 Pane */
+    close() {
+      if (!this.parent || !this.parent.children)
+        return;
+      const sibling = this.parent.children[0] === this ? this.parent.children[1] : this.parent.children[0];
+      const grandparent = this.parent.parent;
+      if (grandparent && grandparent.children) {
+        const idx = grandparent.children[0] === this.parent ? 0 : 1;
+        grandparent.children[idx] = sibling;
+        sibling.parent = grandparent;
+        this.parent.element.replaceWith(sibling.element);
+      } else {
+        sibling.parent = null;
+        this.parent.element.replaceWith(sibling.element);
+      }
+    }
+    /** 调整分割比例 */
+    resize(ratio) {
+      if (!this.parent || !this.parent.children)
+        return;
+      const [left, right] = this.parent.children;
+      const isLeft = left === this;
+      left.ratio = isLeft ? ratio : 1 - ratio;
+      right.ratio = isLeft ? 1 - ratio : ratio;
+      left.element.style.flex = `${left.ratio}`;
+      right.element.style.flex = `${right.ratio}`;
+    }
+    setupResizeHandle(handle, left, right) {
+      let startPos = 0;
+      let startRatio = 0;
+      const isHorizontal = this.direction === "horizontal";
+      const onMove = (e) => {
+        const delta = isHorizontal ? e.clientX - startPos : e.clientY - startPos;
+        const containerSize = isHorizontal ? this.element.clientWidth : this.element.clientHeight;
+        if (containerSize === 0)
+          return;
+        const newRatio = Math.max(0.1, Math.min(0.9, startRatio + delta / containerSize));
+        left.ratio = newRatio;
+        right.ratio = 1 - newRatio;
+        left.element.style.flex = `${newRatio}`;
+        right.element.style.flex = `${1 - newRatio}`;
+        localStorage.setItem(`unipane-pane-${this.id}`, String(newRatio));
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+      handle.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        startPos = isHorizontal ? e.clientX : e.clientY;
+        startRatio = left.ratio;
+        document.body.style.cursor = isHorizontal ? "col-resize" : "row-resize";
+        document.body.style.userSelect = "none";
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+      const saved = localStorage.getItem(`unipane-pane-${this.id}`);
+      if (saved) {
+        const ratio = parseFloat(saved);
+        if (!isNaN(ratio) && ratio > 0.1 && ratio < 0.9) {
+          left.ratio = ratio;
+          right.ratio = 1 - ratio;
+          left.element.style.flex = `${ratio}`;
+          right.element.style.flex = `${1 - ratio}`;
+        }
+      }
+    }
+    findPaneByBuffer(bufferId) {
+      if (this.isLeaf && this.buffer?.id === bufferId)
+        return this;
+      if (this.children) {
+        return this.children[0].findPaneByBuffer(bufferId) || this.children[1].findPaneByBuffer(bufferId);
+      }
+      return null;
+    }
+    getLeaves() {
+      if (this.isLeaf)
+        return [this];
+      if (!this.children)
+        return [];
+      return [...this.children[0].getLeaves(), ...this.children[1].getLeaves()];
+    }
+  };
+
+  // src/core/buffer.ts
+  var Buffer = class {
+    constructor(path, mode) {
+      this.state = {};
+      this.id = path;
+      this.path = path;
+      this.mode = mode;
+    }
+  };
+
+  // src/core/mode-registry.ts
+  var ModeRegistry = class {
+    constructor() {
+      this.modes = [];
+    }
+    register(mode) {
+      this.modes.push(mode);
+    }
+    findMode(path) {
+      for (const mode of this.modes) {
+        if (mode.match(path))
+          return mode;
+      }
+      return null;
+    }
+    findModeByName(name) {
+      return this.modes.find((m) => m.name === name) || null;
+    }
+  };
+
+  // src/core/events.ts
+  var EventBus = class {
+    constructor() {
+      this.listeners = /* @__PURE__ */ new Map();
+    }
+    on(event, callback) {
+      if (!this.listeners.has(event)) {
+        this.listeners.set(event, /* @__PURE__ */ new Set());
+      }
+      this.listeners.get(event).add(callback);
+    }
+    off(event, callback) {
+      this.listeners.get(event)?.delete(callback);
+    }
+    emit(event, data) {
+      this.listeners.get(event)?.forEach((cb) => cb(data));
+    }
+  };
+
   // src/core/api.ts
   var bust = (url) => url + (url.includes("?") ? "&" : "?") + "_t=" + Date.now();
   async function fetchConfig() {
@@ -15,12 +219,6 @@
       throw new Error("Failed to load file tree");
     return resp.json();
   }
-  async function fetchFile(path) {
-    const resp = await fetch(bust(path));
-    if (!resp.ok)
-      throw new Error(`Failed to load: ${resp.status}`);
-    return resp.text();
-  }
   async function saveFile(path, content) {
     await fetch("/api/file", {
       method: "POST",
@@ -29,128 +227,168 @@
     });
   }
 
+  // src/core/app.ts
+  var App = class {
+    // 主内容 Pane
+    constructor() {
+      this.buffers = /* @__PURE__ */ new Map();
+      this.config = null;
+      this.tree = null;
+      this.root = "";
+      this.focusedPane = null;
+      // 当前聚焦的 Pane
+      this.mainPane = null;
+      this.rootPane = new Pane();
+      this.rootPane.element.id = "root-pane";
+      this.modes = new ModeRegistry();
+      this.events = new EventBus();
+    }
+    async init() {
+      this.config = await fetchConfig();
+      this.root = this.config.root || "";
+      this.tree = await fetchTree(false);
+      const [sidePane, mainPane] = this.rootPane.split("horizontal", 0.2);
+      this.mainPane = mainPane;
+      this.renderPane(sidePane, "/", "directory");
+      const defaultPath = this.config.defaultPage || "README.md";
+      this.renderPane(mainPane, defaultPath);
+      this.focusedPane = mainPane;
+      if (mainPane.buffer) {
+        this.updateModeToolbar(mainPane.buffer);
+      }
+      const container = document.getElementById("app");
+      if (container) {
+        container.innerHTML = "";
+        container.appendChild(this.rootPane.element);
+      }
+      this.setupPaneFocus();
+    }
+    /** 设置 Pane 聚焦监听 */
+    setupPaneFocus() {
+      const updateFocus = (pane) => {
+        console.log("[app] updateFocus called, pane:", pane.id, "buffer:", pane.buffer?.path);
+        if (this.focusedPane !== pane) {
+          this.focusedPane = pane;
+          this.events.emit("focus-changed", pane);
+          if (pane.buffer) {
+            this.updateModeToolbar(pane.buffer);
+          }
+        }
+      };
+      const setupClick = (pane) => {
+        if (pane.isLeaf) {
+          pane.element.addEventListener("click", (e) => {
+            console.log("[app] pane clicked:", pane.id, "target:", e.target.className);
+            updateFocus(pane);
+          });
+        } else if (pane.children) {
+          setupClick(pane.children[0]);
+          setupClick(pane.children[1]);
+        }
+      };
+      setupClick(this.rootPane);
+    }
+    /** 打开文件到指定 Pane（默认聚焦的 Pane） */
+    openFile(path, targetPane) {
+      const pane = targetPane || this.focusedPane;
+      if (!pane)
+        return;
+      const buffer = this.getBuffer(path) || this.createBuffer(path);
+      if (!buffer)
+        return;
+      this.renderPane(pane, path);
+      this.events.emit("buffer-changed", buffer);
+      this.updateModeToolbar(buffer);
+    }
+    /** 在指定 Pane 渲染文件 */
+    renderPane(pane, path, modeName) {
+      const buffer = this.getBuffer(path) || this.createBuffer(path, modeName);
+      if (!buffer)
+        return;
+      pane.showBuffer(buffer, (container) => {
+        const ctx = this.makeModeContext(container, buffer, pane);
+        buffer.mode.render(ctx);
+      });
+      this.focusedPane = pane;
+      this.events.emit("focus-changed", pane);
+    }
+    /** 更新 Mode 工具栏 */
+    updateModeToolbar(buffer) {
+      const modeToolbar = document.getElementById("mode-toolbar");
+      if (!modeToolbar) {
+        console.log("[app] updateModeToolbar: mode-toolbar element not found");
+        return;
+      }
+      console.log("[app] updateModeToolbar called for buffer:", buffer.path, "mode:", buffer.mode.name);
+      modeToolbar.innerHTML = "";
+      if (buffer.mode.renderToolbar) {
+        buffer.mode.renderToolbar(modeToolbar, buffer, this);
+      } else {
+        console.log("[app] mode has no renderToolbar");
+      }
+    }
+    getBuffer(path) {
+      return this.buffers.get(path);
+    }
+    createBuffer(path, modeName) {
+      const mode = modeName ? this.modes.findModeByName(modeName) : this.modes.findMode(path);
+      if (!mode)
+        return null;
+      const buffer = new Buffer(path, mode);
+      this.buffers.set(path, buffer);
+      this.events.emit("buffer-created", buffer);
+      return buffer;
+    }
+    closeBuffer(path) {
+      const buffer = this.buffers.get(path);
+      if (!buffer)
+        return;
+      for (const leaf of this.rootPane.getLeaves()) {
+        if (leaf.buffer === buffer) {
+          leaf.clearBuffer();
+          break;
+        }
+      }
+      this.buffers.delete(path);
+      this.events.emit("buffer-closed", buffer);
+    }
+    makeModeContext(container, buffer, pane) {
+      return {
+        buffer,
+        pane,
+        container,
+        openFile: (path) => this.openFile(path, pane),
+        saveFile: async (path, content) => {
+          await saveFile(path, content);
+        },
+        app: this
+      };
+    }
+  };
+
   // src/core/router.ts
   var Router = class {
-    constructor() {
-      this.panes = [];
-      this.activeId = null;
-      this.pendingHistory = null;
-      this.config = {};
-      this.root = "";
-      // Callbacks
-      this.onPaneChange = () => {
-      };
-      this.onContentRender = () => {
-      };
-    }
-    setConfig(config, root) {
-      this.config = config;
-      this.root = root;
-    }
-    setCallbacks(onPaneChange, onContentRender) {
-      this.onPaneChange = onPaneChange;
-      this.onContentRender = onContentRender;
+    constructor(app) {
+      this.app = app;
     }
     init() {
-      window.addEventListener("hashchange", () => this.handleHashChange());
-      this.handleHashChange();
-    }
-    navigateTo(type, value, history) {
-      this.pendingHistory = history || null;
-      const newHash = type === "file" ? "#/file/" + encodeURIComponent(value) : "#/page/" + value;
-      if (window.location.hash === newHash) {
-        this.handleHashChange();
-      } else {
-        window.location.hash = newHash;
+      window.addEventListener("hashchange", () => this.handleHash());
+      if (window.location.hash) {
+        this.handleHash();
       }
     }
-    async handleHashChange() {
-      const route = this.parseHash();
-      if (route.type === "file") {
-        const history = this.pendingHistory;
-        this.pendingHistory = null;
-        await this.openFile(route.path, history);
-      } else if (route.type === "page") {
-        this.openPage(route.pageId);
-      } else {
-        await this.openDefault();
-      }
-    }
-    parseHash() {
-      const hash = window.location.hash || "#/";
-      if (hash.startsWith("#/file/")) {
-        return { type: "file", path: decodeURIComponent(hash.slice(7)) };
-      }
-      if (hash.startsWith("#/page/")) {
-        return { type: "page", pageId: hash.slice(7) };
-      }
-      return { type: "default" };
-    }
-    async openFile(path, history) {
-      const id = "file:" + path;
-      let pane = this.findPane(id);
-      if (!pane) {
-        pane = { id, type: "file", path, title: this.basename(path), history: history || [] };
-        this.panes.push(pane);
-      }
-      await this.activatePane(id);
-    }
-    openPage(pageId) {
-      const id = "page:" + pageId;
-      let pane = this.findPane(id);
-      if (!pane) {
-        const page = this.config.pages?.[pageId];
-        pane = { id, type: "page", pageId, title: page?.title || pageId, history: [] };
-        this.panes.push(pane);
-      }
-      this.activatePane(id);
-    }
-    async openDefault() {
-      const dp = this.config.defaultPage || "home";
-      if (dp.includes(".")) {
-        await this.openFile(dp);
-      } else if (this.config.pages?.[dp]) {
-        this.openPage(dp);
-      }
-    }
-    closePane(id) {
-      const idx = this.panes.findIndex((p) => p.id === id);
-      if (idx < 0)
+    handleHash() {
+      const hash = window.location.hash;
+      const fileMatch = hash.match(/^#\/file\/(.+)$/);
+      if (fileMatch) {
+        const path = decodeURIComponent(fileMatch[1]);
+        this.app.openFile(path);
         return;
-      this.panes.splice(idx, 1);
-      if (this.activeId === id) {
-        if (this.panes.length > 0) {
-          const newIdx = Math.min(idx, this.panes.length - 1);
-          this.activatePane(this.panes[newIdx].id);
-        } else {
-          this.activeId = null;
-          this.onPaneChange();
-        }
-      } else {
-        this.onPaneChange();
       }
-    }
-    activatePane(id) {
-      this.activeId = id;
-      const pane = this.findPane(id);
-      if (pane)
-        this.onContentRender(pane);
-      this.onPaneChange();
-    }
-    getActivePane() {
-      return this.activeId ? this.findPane(this.activeId) : null;
-    }
-    getPanes() {
-      return this.panes;
-    }
-    getActiveId() {
-      return this.activeId;
-    }
-    findPane(id) {
-      return this.panes.find((p) => p.id === id);
-    }
-    basename(path) {
-      return path.split("/").pop() || path;
+      const pageMatch = hash.match(/^#\/page\/(.+)$/);
+      if (pageMatch) {
+        console.warn("Page view not yet implemented:", pageMatch[1]);
+      }
     }
   };
 
@@ -219,503 +457,456 @@
     }
   };
 
-  // src/core/sidebar.ts
-  var Sidebar = class {
-    constructor(router, theme) {
-      this.tree = [];
-      this.showHidden = false;
-      this.router = router;
-      this.theme = theme;
-    }
-    async init(config) {
-      this.renderNav(config);
-      await this.loadTree();
-      this.setupResize();
-      this.setupToggle();
-    }
-    renderNav(config) {
-      const nav = document.getElementById("sidebar-nav");
-      nav.innerHTML = "";
-      if (!config.pages)
-        return;
-      Object.keys(config.pages).forEach((id) => {
-        const page = config.pages[id];
-        const el = document.createElement("div");
-        el.className = "nav-item";
-        el.textContent = page.title || id;
-        el.onclick = () => this.router.navigateTo("page", id);
-        nav.appendChild(el);
-      });
-    }
-    async loadTree() {
-      try {
-        this.tree = await fetchTree(this.showHidden);
-        this.renderTree();
-      } catch (e) {
-        console.error("Failed to load tree:", e);
-      }
-    }
-    renderTree() {
-      const container = document.getElementById("file-tree");
-      container.innerHTML = "";
-      this.tree.forEach((item) => container.appendChild(this.createTreeNode(item)));
-    }
-    createTreeNode(item) {
-      const el = document.createElement("div");
-      if (item.type === "dir") {
-        const header = document.createElement("div");
-        header.className = "tree-item dir";
-        header.innerHTML = `<span class="icon">\u25B6</span> ${this.escapeHtml(item.name)}`;
-        const children = document.createElement("div");
-        children.className = "tree-children collapsed";
-        if (item.children) {
-          item.children.forEach((child) => children.appendChild(this.createTreeNode(child)));
-        }
-        header.onclick = () => {
-          const collapsed = children.classList.toggle("collapsed");
-          header.querySelector(".icon").textContent = collapsed ? "\u25B6" : "\u25BC";
-        };
-        header.ondblclick = (e) => {
-          e.stopPropagation();
-          this.router.navigateTo("file", item.path + "/");
-        };
-        el.appendChild(header);
-        el.appendChild(children);
-      } else {
-        const file = document.createElement("div");
-        file.className = "tree-item";
-        file.innerHTML = `<span class="icon">${this.fileIcon(item.name)}</span> ${this.escapeHtml(item.name)}`;
-        file.onclick = () => this.router.navigateTo("file", item.path);
-        el.appendChild(file);
-      }
-      return el;
-    }
-    setupResize() {
-      const sidebar = document.getElementById("sidebar");
-      const handle = document.getElementById("sidebar-resize");
-      if (!sidebar || !handle)
-        return;
-      let resizing = false;
-      const savedWidth = localStorage.getItem("unipane-sidebar-width");
-      if (savedWidth)
-        sidebar.style.width = savedWidth;
-      handle.addEventListener("mousedown", (e) => {
-        resizing = true;
-        document.body.style.cursor = "col-resize";
-        document.body.style.userSelect = "none";
-        e.preventDefault();
-      });
-      document.addEventListener("mousemove", (e) => {
-        if (!resizing)
-          return;
-        const w = Math.max(150, Math.min(window.innerWidth * 0.5, e.clientX));
-        sidebar.style.width = w + "px";
-      });
-      document.addEventListener("mouseup", () => {
-        if (!resizing)
-          return;
-        resizing = false;
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        localStorage.setItem("unipane-sidebar-width", sidebar.style.width);
-      });
-    }
-    setupToggle() {
-      const sidebar = document.getElementById("sidebar");
-      const btn = document.getElementById("toggle-sidebar");
-      if (!sidebar || !btn)
-        return;
-      btn.addEventListener("click", () => {
-        sidebar.classList.toggle("hidden");
-        btn.textContent = sidebar.classList.contains("hidden") ? "\u25B6" : "\u25C0";
-      });
-    }
-    setupHiddenToggle() {
-      const btn = document.getElementById("toggle-hidden");
-      btn.addEventListener("click", async () => {
-        this.showHidden = !this.showHidden;
-        btn.classList.toggle("active", this.showHidden);
-        await this.loadTree();
-      });
-    }
-    fileIcon(name) {
-      if (name.endsWith(".md"))
-        return "\u{1F4DD}";
-      if (name.endsWith(".html") || name.endsWith(".htm"))
-        return "\u{1F310}";
-      if (/\.(png|jpg|jpeg|gif|svg|webp)$/i.test(name))
-        return "\u{1F5BC}";
-      return "\u{1F4C4}";
-    }
-    escapeHtml(str) {
-      const div = document.createElement("div");
-      div.textContent = str;
-      return div.innerHTML;
-    }
-  };
-
-  // src/plugins/markdown.ts
-  var markdownPlugin = {
-    match(filepath) {
-      return filepath.endsWith(".md");
+  // src/modes/markdown.ts
+  var markdownMode = {
+    name: "markdown",
+    match(path) {
+      return path.endsWith(".md") || path.endsWith(".markdown");
     },
     render(ctx) {
-      const div = document.createElement("div");
-      div.className = "md-content";
-      div.innerHTML = marked.parse(ctx.content || "");
-      ctx.container.appendChild(div);
-      this.fixLinks(div, ctx.filepath);
-      this.setupCheckboxes(div, ctx);
-      const toolbar = document.createElement("div");
-      toolbar.style.cssText = "margin-bottom:12px;display:flex;gap:8px;";
+      const path = ctx.buffer.path;
+      fetch(`/${encodeURI(path)}`).then((r) => r.ok ? r.text() : Promise.reject(new Error(r.statusText))).then((content) => {
+        ctx.buffer.state.rawContent = content;
+        renderMarkdownView(ctx, content);
+      }).catch((err) => {
+        ctx.container.textContent = `\u52A0\u8F7D\u5931\u8D25: ${err.message}`;
+      });
+    },
+    renderToolbar(container, buffer, app) {
       const editBtn = document.createElement("button");
-      editBtn.className = "sidebar-btn";
+      editBtn.className = "toolbar-btn";
       editBtn.textContent = "\u7F16\u8F91";
-      toolbar.appendChild(editBtn);
-      ctx.container.insertBefore(toolbar, div);
-      editBtn.addEventListener("click", () => {
-        ctx.container.innerHTML = "";
-        this.renderEditor(ctx);
-      });
-    },
-    fixLinks(div, filepath) {
-      const dir = filepath.includes("/") ? filepath.substring(0, filepath.lastIndexOf("/")) : "";
-      div.querySelectorAll("a[href]").forEach((a) => {
-        const rawHref = a.getAttribute("href");
-        if (!rawHref || rawHref.startsWith("#") || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(rawHref))
-          return;
-        const href = decodeURIComponent(rawHref);
-        let absPath = href;
-        if (dir)
-          absPath = dir + "/" + href;
-        const parts = absPath.split("/").filter(Boolean);
-        const resolved = [];
-        for (const p of parts) {
-          if (p === ".")
-            continue;
-          if (p === "..") {
-            if (resolved.length > 0)
-              resolved.pop();
-            continue;
-          }
-          resolved.push(p);
+      editBtn.title = "\u7F16\u8F91 Markdown";
+      editBtn.onclick = () => {
+        const pane = app.rootPane.findPaneByBuffer(buffer.path);
+        if (pane && buffer.state.rawContent) {
+          pane.showBuffer(buffer, (container2) => {
+            const ctx = app.makeModeContext(container2, buffer, pane);
+            showEditor(buffer.state.rawContent, buffer.path, ctx);
+          });
         }
-        a.setAttribute("href", "#/file/" + encodeURIComponent(resolved.join("/")));
-      });
-    },
-    setupCheckboxes(div, ctx) {
-      div.querySelectorAll('input[type="checkbox"]').forEach((cb, i) => {
-        const input = cb;
-        input.disabled = false;
-        input.style.cursor = "pointer";
-        input.addEventListener("change", async () => {
-          const lines = (ctx.content || "").split("\n");
-          let count = 0;
-          for (let j = 0; j < lines.length; j++) {
-            if (/^\s*-\s*\[[ x]\]/.test(lines[j])) {
-              if (count === i) {
-                lines[j] = input.checked ? lines[j].replace("[ ]", "[x]") : lines[j].replace("[x]", "[ ]");
-                break;
-              }
-              count++;
+      };
+      container.appendChild(editBtn);
+    }
+  };
+  function renderMarkdownView(ctx, content) {
+    const div = document.createElement("div");
+    div.className = "markdown-body";
+    div.innerHTML = marked.parse(content);
+    fixLinks(div, ctx.buffer.path);
+    setupCheckboxes(div, ctx.buffer.path, ctx);
+    ctx.container.appendChild(div);
+  }
+  function fixLinks(div, filepath) {
+    const dir = filepath.includes("/") ? filepath.substring(0, filepath.lastIndexOf("/")) : "";
+    div.querySelectorAll("a[href]").forEach((a) => {
+      const rawHref = a.getAttribute("href");
+      if (!rawHref || rawHref.startsWith("#") || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(rawHref))
+        return;
+      const href = decodeURIComponent(rawHref);
+      let absPath = href;
+      if (dir && !href.startsWith("/"))
+        absPath = dir + "/" + href;
+      const parts = absPath.split("/").filter(Boolean);
+      const resolved = [];
+      for (const p of parts) {
+        if (p === ".")
+          continue;
+        if (p === "..") {
+          if (resolved.length > 0)
+            resolved.pop();
+          continue;
+        }
+        resolved.push(p);
+      }
+      a.setAttribute("href", "#/file/" + encodeURIComponent(resolved.join("/")));
+    });
+  }
+  function setupCheckboxes(div, path, ctx) {
+    div.querySelectorAll('input[type="checkbox"]').forEach((cb, i) => {
+      const input = cb;
+      input.dataset.index = String(i);
+      input.addEventListener("change", () => {
+        fetch(`/${encodeURI(path)}`).then((r) => r.text()).then((content) => {
+          let idx = 0;
+          const updated = content.replace(/- \[[ x]\]/g, (match) => {
+            if (idx === i) {
+              idx++;
+              return input.checked ? "- [x]" : "- [ ]";
             }
-          }
-          const newContent = lines.join("\n");
-          ctx.content = newContent;
-          await ctx.saveFile(ctx.filepath, newContent);
+            idx++;
+            return match;
+          });
+          ctx.saveFile(path, updated);
         });
       });
-    },
-    renderEditor(ctx) {
-      const toolbar = document.createElement("div");
-      toolbar.style.cssText = "margin-bottom:12px;display:flex;gap:8px;";
-      const saveBtn = document.createElement("button");
-      saveBtn.className = "sidebar-btn active";
-      saveBtn.textContent = "\u4FDD\u5B58";
-      const cancelBtn = document.createElement("button");
-      cancelBtn.className = "sidebar-btn";
-      cancelBtn.textContent = "\u53D6\u6D88";
-      toolbar.appendChild(saveBtn);
-      toolbar.appendChild(cancelBtn);
-      ctx.container.appendChild(toolbar);
-      const textarea = document.createElement("textarea");
-      textarea.value = ctx.content || "";
-      textarea.style.cssText = "width:100%;height:calc(100vh - 160px);padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:1.6;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);resize:vertical;";
-      ctx.container.appendChild(textarea);
-      textarea.focus();
-      saveBtn.addEventListener("click", async () => {
-        const newContent = textarea.value;
-        await ctx.saveFile(ctx.filepath, newContent);
-        ctx.container.innerHTML = "";
-        ctx.content = newContent;
-        this.render(ctx);
-      });
-      cancelBtn.addEventListener("click", () => {
-        ctx.container.innerHTML = "";
-        this.render(ctx);
-      });
-    }
-  };
+    });
+  }
+  function showEditor(content, path, ctx) {
+    const textarea = document.createElement("textarea");
+    textarea.className = "md-editor";
+    textarea.value = content;
+    const btns = document.createElement("div");
+    btns.className = "md-editor-btns";
+    const saveBtn = document.createElement("button");
+    saveBtn.textContent = "\u4FDD\u5B58";
+    saveBtn.onclick = async () => {
+      await ctx.saveFile(path, textarea.value);
+      ctx.buffer.state.rawContent = textarea.value;
+      const pane = ctx.app.rootPane.findPaneByBuffer(path);
+      if (pane)
+        ctx.app.renderPane(pane, path);
+    };
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "\u53D6\u6D88";
+    cancelBtn.onclick = () => {
+      const pane = ctx.app.rootPane.findPaneByBuffer(path);
+      if (pane)
+        ctx.app.renderPane(pane, path);
+    };
+    btns.appendChild(saveBtn);
+    btns.appendChild(cancelBtn);
+    ctx.container.innerHTML = "";
+    ctx.container.appendChild(btns);
+    ctx.container.appendChild(textarea);
+  }
 
-  // src/plugins/directory.ts
-  var directoryPlugin = {
-    match(filepath) {
-      return filepath.endsWith("/");
-    },
-    render(ctx) {
-      const tree = window.__unipane_tree;
-      if (!tree) {
-        ctx.container.textContent = "File tree not loaded";
-        return;
-      }
-      const dirPath = ctx.filepath.replace(/\/$/, "");
-      const dir = this.findDir(tree, dirPath);
-      if (!dir) {
-        ctx.container.textContent = "Directory not found: " + dirPath;
-        return;
-      }
-      const list = document.createElement("div");
-      list.className = "dir-list";
-      if (dirPath && dirPath !== ".") {
-        const parent = document.createElement("div");
-        parent.className = "tree-item";
-        parent.innerHTML = '<span class="icon">\u{1F4C1}</span> ..';
-        parent.onclick = () => {
-          const parentPath = dirPath.split("/").slice(0, -1).join("/");
-          ctx.openFile(parentPath ? parentPath + "/" : "");
-        };
-        list.appendChild(parent);
-      }
-      dir.children?.forEach((item) => {
-        const el = document.createElement("div");
-        el.className = "tree-item" + (item.type === "dir" ? " dir" : "");
-        const icon = item.type === "dir" ? "\u{1F4C1}" : this.fileIcon(item.name);
-        el.innerHTML = `<span class="icon">${icon}</span> ${this.escapeHtml(item.name)}`;
-        el.onclick = () => ctx.openFile(item.path + (item.type === "dir" ? "/" : ""));
-        list.appendChild(el);
-      });
-      ctx.container.appendChild(list);
-    },
-    findDir(items, path) {
-      for (const item of items) {
-        if (item.path === path && item.type === "dir")
-          return item;
-        if (item.children) {
-          const found = this.findDir(item.children, path);
-          if (found)
-            return found;
-        }
-      }
-      return null;
-    },
-    fileIcon(name) {
-      if (name.endsWith(".md"))
-        return "\u{1F4DD}";
-      if (name.endsWith(".html") || name.endsWith(".htm"))
-        return "\u{1F310}";
-      if (/\.(png|jpg|jpeg|gif|svg|webp)$/i.test(name))
-        return "\u{1F5BC}";
-      return "\u{1F4C4}";
-    },
-    escapeHtml(str) {
-      const div = document.createElement("div");
-      div.textContent = str;
-      return div.innerHTML;
-    }
-  };
-
-  // src/plugins/image.ts
-  var imagePlugin = {
-    match(filepath) {
-      return /\.(png|jpg|jpeg|gif|svg|webp)$/i.test(filepath);
+  // src/modes/image.ts
+  var imageMode = {
+    name: "image",
+    match(path) {
+      return /\.(png|jpe?g|gif|svg|webp|ico)$/i.test(path);
     },
     render(ctx) {
       const img = document.createElement("img");
-      img.src = bust(ctx.root + "/" + ctx.filepath);
+      img.src = `/${encodeURI(ctx.buffer.path)}`;
       img.style.maxWidth = "100%";
+      img.style.height = "auto";
+      img.alt = ctx.buffer.path;
       ctx.container.appendChild(img);
     }
   };
 
-  // src/plugins/html.ts
-  var htmlPlugin = {
-    match(filepath) {
-      return filepath.endsWith(".html") || filepath.endsWith(".htm");
+  // src/modes/html.ts
+  var htmlMode = {
+    name: "html",
+    match(path) {
+      return path.endsWith(".html") || path.endsWith(".htm");
     },
     render(ctx) {
       const iframe = document.createElement("iframe");
-      iframe.src = bust(ctx.root + "/" + ctx.filepath);
+      iframe.sandbox = "allow-same-origin allow-scripts";
       iframe.style.width = "100%";
       iframe.style.height = "100%";
       iframe.style.border = "none";
+      iframe.src = `/${encodeURI(ctx.buffer.path)}`;
       ctx.container.appendChild(iframe);
     }
   };
 
-  // src/plugins/raw.ts
-  var rawPlugin = {
-    match(_filepath) {
+  // src/modes/raw.ts
+  var rawMode = {
+    name: "raw",
+    match(_path) {
       return true;
     },
     render(ctx) {
-      const pre = document.createElement("pre");
-      pre.textContent = ctx.content || "";
-      ctx.container.appendChild(pre);
+      const path = ctx.buffer.path;
+      fetch(`/${encodeURI(path)}`).then((r) => r.ok ? r.text() : Promise.reject(new Error(r.statusText))).then((content) => {
+        const pre = document.createElement("pre");
+        pre.textContent = content;
+        pre.style.whiteSpace = "pre-wrap";
+        pre.style.wordBreak = "break-word";
+        ctx.container.appendChild(pre);
+      }).catch((err) => {
+        ctx.container.textContent = `\u52A0\u8F7D\u5931\u8D25: ${err.message}`;
+      });
+    }
+  };
+
+  // src/core/util.ts
+  function fileIcon(name) {
+    const ext = name.split(".").pop()?.toLowerCase() || "";
+    if (["md", "txt", "log"].includes(ext))
+      return "\u{1F4DD}";
+    if (["html", "htm"].includes(ext))
+      return "\u{1F310}";
+    if (["png", "jpg", "jpeg", "gif", "svg", "webp", "ico"].includes(ext))
+      return "\u{1F5BC}\uFE0F";
+    if (["js", "ts", "jsx", "tsx", "py", "rb", "go", "rs", "c", "cpp", "h"].includes(ext))
+      return "\u{1F4C4}";
+    if (["json", "yaml", "yml", "toml", "xml"].includes(ext))
+      return "\u{1F4CB}";
+    if (["css", "scss", "less"].includes(ext))
+      return "\u{1F3A8}";
+    if (["sh", "bash", "zsh"].includes(ext))
+      return "\u2699\uFE0F";
+    return "\u{1F4C4}";
+  }
+
+  // src/modes/directory.ts
+  var directoryMode = {
+    name: "directory",
+    match(path) {
+      return path.endsWith("/");
+    },
+    render(ctx) {
+      const tree = ctx.app.tree;
+      if (!tree) {
+        ctx.container.textContent = "File tree not loaded";
+        return;
+      }
+      const dirPath = ctx.buffer.path.replace(/\/$/, "");
+      const isRoot = !dirPath;
+      const list = document.createElement("div");
+      list.className = "dir-tree";
+      const items = isRoot ? tree : findDir(tree, dirPath)?.children;
+      if (!items) {
+        list.textContent = "Directory not found: " + dirPath;
+        ctx.container.appendChild(list);
+        return;
+      }
+      if (!isRoot) {
+        const parentItem = document.createElement("div");
+        parentItem.className = "tree-item";
+        parentItem.innerHTML = '<span class="tree-icon">\u{1F4C1}</span> <span class="tree-name">..</span>';
+        parentItem.onclick = () => {
+          const parentPath = dirPath.split("/").slice(0, -1).join("/");
+          const target = parentPath ? parentPath + "/" : "/";
+          ctx.app.openFile(target, ctx.pane);
+        };
+        list.appendChild(parentItem);
+      }
+      if (!isRoot) {
+        const rootItem = document.createElement("div");
+        rootItem.className = "tree-item";
+        rootItem.innerHTML = '<span class="tree-icon">\u{1F4C1}</span> <span class="tree-name">/</span>';
+        rootItem.onclick = () => ctx.app.openFile("/", ctx.pane);
+        list.appendChild(rootItem);
+      }
+      renderTree(list, items, ctx);
+      ctx.container.appendChild(list);
+    },
+    renderToolbar(container, buffer, app) {
+      const showHidden = buffer.state.showHidden ?? false;
+      const toggleHidden = document.createElement("button");
+      toggleHidden.className = "toolbar-btn" + (showHidden ? " active" : "");
+      toggleHidden.textContent = ".*";
+      toggleHidden.title = showHidden ? "\u9690\u85CF\u70B9\u6587\u4EF6" : "\u663E\u793A\u9690\u85CF\u6587\u4EF6";
+      toggleHidden.onclick = async () => {
+        buffer.state.showHidden = !showHidden;
+        app.tree = await fetchTree(buffer.state.showHidden);
+        const pane = app.rootPane.findPaneByBuffer(buffer.path);
+        if (pane) {
+          app.renderPane(pane, buffer.path);
+        }
+        app.updateModeToolbar(buffer);
+      };
+      container.appendChild(toggleHidden);
+    }
+  };
+  function renderTree(container, items, ctx) {
+    items.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "tree-item";
+      if (item.type === "dir") {
+        const toggle = document.createElement("span");
+        toggle.className = "tree-toggle";
+        toggle.textContent = "\u25B6";
+        const icon = document.createElement("span");
+        icon.className = "tree-icon";
+        icon.textContent = "\u{1F4C1}";
+        const name = document.createElement("span");
+        name.className = "tree-name";
+        name.textContent = item.name;
+        row.appendChild(toggle);
+        row.appendChild(icon);
+        row.appendChild(name);
+        const children = document.createElement("div");
+        children.className = "tree-children collapsed";
+        row.onclick = (e) => {
+          e.stopPropagation();
+          const isExpanded = !children.classList.contains("collapsed");
+          if (isExpanded) {
+            children.classList.add("collapsed");
+            toggle.textContent = "\u25B6";
+          } else {
+            children.classList.remove("collapsed");
+            toggle.textContent = "\u25BC";
+            if (children.children.length === 0 && item.children) {
+              renderTree(children, item.children, ctx);
+            }
+          }
+        };
+        row.ondblclick = (e) => {
+          e.stopPropagation();
+          ctx.openFile(item.path + "/");
+        };
+        container.appendChild(row);
+        container.appendChild(children);
+      } else {
+        const icon = document.createElement("span");
+        icon.className = "tree-icon";
+        icon.textContent = fileIcon(item.name);
+        const name = document.createElement("span");
+        name.className = "tree-name";
+        name.textContent = item.name;
+        row.appendChild(icon);
+        row.appendChild(name);
+        row.onclick = () => ctx.app.openFile(item.path, ctx.app.mainPane || void 0);
+        container.appendChild(row);
+      }
+    });
+  }
+  function findDir(items, path) {
+    for (const item of items) {
+      if (item.path === path && item.type === "dir")
+        return item;
+      if (item.children) {
+        const found = findDir(item.children, path);
+        if (found)
+          return found;
+      }
+    }
+    return null;
+  }
+
+  // src/modes/buffer-list.ts
+  var bufferListMode = {
+    name: "buffer-list",
+    match(path) {
+      return path === "##buffers";
+    },
+    render(ctx) {
+      const list = document.createElement("div");
+      list.className = "buffer-list";
+      const title = document.createElement("h3");
+      title.textContent = "Open Buffers";
+      list.appendChild(title);
+      const buffers = Array.from(ctx.app.buffers.values());
+      if (buffers.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "buffer-list-empty";
+        empty.textContent = "No open buffers";
+        list.appendChild(empty);
+      } else {
+        buffers.forEach((buffer) => {
+          const item = document.createElement("div");
+          item.className = "buffer-list-item";
+          const icon = document.createElement("span");
+          icon.className = "icon";
+          icon.textContent = buffer.path.endsWith("/") ? "\u{1F4C1}" : fileIcon(buffer.path);
+          const name = document.createElement("span");
+          name.className = "buffer-list-name";
+          name.textContent = buffer.path;
+          const mode = document.createElement("span");
+          mode.className = "buffer-list-mode";
+          mode.textContent = `[${buffer.mode.name}]`;
+          item.appendChild(icon);
+          item.appendChild(name);
+          item.appendChild(mode);
+          item.onclick = () => ctx.openFile(buffer.path);
+          list.appendChild(item);
+        });
+      }
+      ctx.container.appendChild(list);
     }
   };
 
   // src/main.ts
-  var plugins = [
-    directoryPlugin,
-    imagePlugin,
-    htmlPlugin,
-    markdownPlugin,
-    rawPlugin
-    // fallback
-  ];
-  function findPlugin(filepath) {
-    return plugins.find((p) => p.match(filepath)) || rawPlugin;
-  }
   async function main() {
-    let config;
+    const app = new App();
+    app.modes.register(directoryMode);
+    app.modes.register(imageMode);
+    app.modes.register(htmlMode);
+    app.modes.register(markdownMode);
+    app.modes.register(bufferListMode);
+    app.modes.register(rawMode);
+    const theme = new ThemeManager();
     try {
-      config = await fetchConfig();
+      await app.init();
     } catch (e) {
-      document.getElementById("content").innerHTML = '<div class="welcome"><h2>Error</h2><p>Failed to load config</p></div>';
+      document.getElementById("app").innerHTML = `<div class="welcome"><h2>Error</h2><p>${e.message}</p></div>`;
       return;
     }
-    const root = config.root || "..";
-    document.title = config.title || "Unipane";
-    const router = new Router();
-    const theme = new ThemeManager();
-    const sidebar = new Sidebar(router, theme);
-    router.setConfig(config, root);
-    function renderTabs() {
-      const bar = document.getElementById("tab-bar");
-      bar.innerHTML = "";
-      router.getPanes().forEach((pane) => {
-        const tab = document.createElement("div");
-        tab.className = "tab" + (pane.id === router.getActiveId() ? " active" : "");
-        const label = document.createElement("span");
-        label.textContent = pane.title;
-        label.onclick = () => router.navigateTo(
-          pane.type,
-          pane.path || pane.pageId || ""
-        );
-        const close = document.createElement("span");
-        close.className = "close";
-        close.textContent = "\xD7";
-        close.onclick = (e) => {
-          e.stopPropagation();
-          router.closePane(pane.id);
-        };
-        tab.appendChild(label);
-        tab.appendChild(close);
-        bar.appendChild(tab);
+    theme.init(app.config || {});
+    setupToolbar(app);
+    const toggleTheme = document.getElementById("toggle-theme");
+    if (toggleTheme) {
+      toggleTheme.addEventListener("click", () => {
+        theme.cycleTheme();
+        toggleTheme.textContent = theme.getThemeIcon();
       });
+      toggleTheme.textContent = theme.getThemeIcon();
     }
-    async function renderContent(pane) {
-      const container = document.getElementById("content");
-      container.innerHTML = "";
-      if (pane.type === "file" && pane.path) {
-        if (pane.path.endsWith("/")) {
-          ;
-          window.__unipane_tree = sidebar.tree;
-          renderBreadcrumb(container, pane);
-          const ctx = makeContext(container, pane);
-          directoryPlugin.render(ctx);
-          return;
-        }
-        try {
-          const content = await fetchFile(root + "/" + pane.path);
-          renderBreadcrumb(container, pane);
-          const plugin = findPlugin(pane.path);
-          const ctx = makeContext(container, pane, content);
-          plugin.render(ctx);
-        } catch (e) {
-          container.textContent = "Error: " + e.message;
-        }
-      } else if (pane.type === "page") {
-        container.textContent = "Page view not yet implemented";
-      }
-    }
-    function makeContext(container, pane, content) {
-      return {
-        container,
-        filepath: pane.path || "",
-        content: content || null,
-        root,
-        saveFile: async (path, content2) => {
-          await saveFile(path, content2);
-        },
-        openFile: (path, history) => {
-          router.navigateTo("file", path, history);
-        },
-        showBreadcrumb: (items) => {
-        }
-      };
-    }
-    function renderBreadcrumb(container, pane) {
-      if (!pane.history || pane.history.length === 0)
-        return;
-      const breadcrumb = document.createElement("div");
-      breadcrumb.className = "breadcrumb";
-      pane.history.forEach((h, i) => {
-        if (i > 0) {
-          const sep = document.createElement("span");
-          sep.className = "sep";
-          sep.textContent = ">";
-          breadcrumb.appendChild(sep);
-        }
-        const link = document.createElement("a");
-        link.textContent = h.title;
-        link.href = "#";
-        link.onclick = (e) => {
-          e.preventDefault();
-          pane.history = pane.history.slice(0, i);
-          router.navigateTo("file", h.path);
-        };
-        breadcrumb.appendChild(link);
+    const toggleCss = document.getElementById("toggle-css");
+    if (toggleCss) {
+      toggleCss.addEventListener("click", () => {
+        theme.cycleCssTheme();
+        toggleCss.textContent = theme.getCssThemeName();
+        toggleCss.classList.toggle("active", theme.isCssThemeActive());
       });
-      container.appendChild(breadcrumb);
+      toggleCss.textContent = theme.getCssThemeName();
+      toggleCss.classList.toggle("active", theme.isCssThemeActive());
     }
-    router.setCallbacks(renderTabs, renderContent);
-    theme.init(config);
-    await sidebar.init(config);
-    sidebar.setupHiddenToggle();
-    document.getElementById("toggle-theme").addEventListener("click", () => {
-      theme.cycleTheme();
-      document.getElementById("toggle-theme").textContent = theme.getThemeIcon();
-    });
-    document.getElementById("toggle-theme").textContent = theme.getThemeIcon();
-    document.getElementById("toggle-css").addEventListener("click", () => {
-      theme.cycleCssTheme();
-      const btn = document.getElementById("toggle-css");
-      btn.textContent = theme.getCssThemeName();
-      btn.classList.toggle("active", theme.isCssThemeActive());
-    });
-    const cssBtn = document.getElementById("toggle-css");
-    cssBtn.textContent = theme.getCssThemeName();
-    cssBtn.classList.toggle("active", theme.isCssThemeActive());
-    document.getElementById("content").addEventListener("click", (e) => {
+    const router = new Router(app);
+    router.init();
+    document.getElementById("app").addEventListener("click", (e) => {
       const a = e.target.closest("a");
       if (!a)
         return;
       const href = a.getAttribute("href");
-      if (!href)
-        return;
-      if (href.startsWith("#/")) {
+      if (href && href.startsWith("#/")) {
         e.preventDefault();
-        const pane = router.getActivePane();
-        const newHistory = pane ? [...pane.history] : [];
-        if (pane?.path) {
-          newHistory.push({ path: pane.path, title: pane.title });
-        }
-        router.navigateTo("file", decodeURIComponent(href.replace("#/file/", "")), newHistory);
-        return;
+        const path = decodeURIComponent(href.replace("#/file/", ""));
+        app.openFile(path);
       }
     });
-    router.init();
+  }
+  function setupToolbar(app) {
+    const currentBuffer = document.getElementById("current-buffer");
+    const bufferList = document.getElementById("buffer-list");
+    const update = () => {
+      if (currentBuffer) {
+        currentBuffer.textContent = app.focusedPane?.buffer?.path || "";
+      }
+      if (bufferList) {
+        bufferList.innerHTML = "";
+        const buffers = Array.from(app.buffers.values());
+        buffers.forEach((buf) => {
+          const tag = document.createElement("span");
+          tag.className = "buffer-tag" + (buf === app.focusedPane?.buffer ? " active" : "");
+          const name = document.createElement("span");
+          name.className = "buffer-tag-name";
+          name.textContent = buf.path.split("/").pop() || buf.path;
+          name.title = buf.path;
+          name.onclick = () => {
+            const pane = app.rootPane.findPaneByBuffer(buf.path);
+            if (pane) {
+              app.focusedPane = pane;
+              app.events.emit("focus-changed", pane);
+              app.updateModeToolbar(buf);
+            }
+          };
+          const close = document.createElement("span");
+          close.className = "buffer-tag-close";
+          close.textContent = "\xD7";
+          close.title = "\u5173\u95ED";
+          close.onclick = (e) => {
+            e.stopPropagation();
+            app.closeBuffer(buf.path);
+          };
+          tag.appendChild(name);
+          tag.appendChild(close);
+          bufferList.appendChild(tag);
+        });
+      }
+    };
+    app.events.on("buffer-changed", update);
+    app.events.on("buffer-created", update);
+    app.events.on("buffer-closed", update);
+    app.events.on("focus-changed", update);
+    update();
   }
   main();
 })();

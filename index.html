@@ -4,33 +4,22 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Unipane</title>
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-</style>
+<link rel="stylesheet" href="/.unipane/themes/default.css">
 </head>
 <body>
 
-<div id="sidebar">
-  <div id="sidebar-header">
-    <span>Unipane</span>
-    <span>
-      <button id="toggle-hidden" class="sidebar-btn" title="显示隐藏文件">.*</button>
-      <button id="toggle-css" class="sidebar-btn" title="切换样式主题">Aa</button>
-      <button id="toggle-theme" class="sidebar-btn" title="切换明暗主题">◐</button>
-    </span>
-  </div>
-  <div id="sidebar-nav"></div>
-  <div id="file-tree"></div>
+<div id="toolbar">
+  <div id="mode-toolbar"></div>
+  <span id="current-buffer"></span>
+  <div class="spacer"></div>
+  <div id="buffer-list"></div>
+  <button id="toggle-css" class="toolbar-btn" title="切换样式主题">Aa</button>
+  <button id="toggle-theme" class="toolbar-btn" title="切换明暗主题">◐</button>
 </div>
-<button id="toggle-sidebar" class="sidebar-btn" title="隐藏/显示侧边栏">◀</button>
-<div id="sidebar-resize"></div>
-<div id="main">
-  <div id="tab-bar"></div>
-  <div id="content">
-    <div class="welcome">
-      <h2>Welcome</h2>
-      <p>点击左侧文件或页面开始浏览</p>
-    </div>
+<div id="app">
+  <div class="welcome">
+    <h2>Welcome</h2>
+    <p>加载中...</p>
   </div>
 </div>
 

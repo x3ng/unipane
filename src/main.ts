@@ -1,202 +1,137 @@
 // Unipane — main entry point
 
-import { Plugin, RenderContext, Pane, HistoryEntry } from './core/types'
-import { fetchConfig, fetchFile, saveFile } from './core/api'
+import { App } from './core/app'
 import { Router } from './core/router'
 import { ThemeManager } from './core/theme'
-import { Sidebar } from './core/sidebar'
-import { markdownPlugin } from './plugins/markdown'
-import { directoryPlugin } from './plugins/directory'
-import { imagePlugin } from './plugins/image'
-import { htmlPlugin } from './plugins/html'
-import { rawPlugin } from './plugins/raw'
 
-// Plugin registry — order matters: first match wins
-const plugins: Plugin[] = [
-  directoryPlugin,
-  imagePlugin,
-  htmlPlugin,
-  markdownPlugin,
-  rawPlugin,  // fallback
-]
-
-function findPlugin(filepath: string): Plugin {
-  return plugins.find(p => p.match(filepath)) || rawPlugin
-}
+// Modes
+import { markdownMode } from './modes/markdown'
+import { imageMode } from './modes/image'
+import { htmlMode } from './modes/html'
+import { rawMode } from './modes/raw'
+import { directoryMode } from './modes/directory'
+import { bufferListMode } from './modes/buffer-list'
 
 async function main() {
-  // Load config
-  let config: Record<string, unknown>
+  const app = new App()
+
+  // 注册 Mode（顺序重要：先匹配的优先）
+  app.modes.register(directoryMode)
+  app.modes.register(imageMode)
+  app.modes.register(htmlMode)
+  app.modes.register(markdownMode)
+  app.modes.register(bufferListMode)
+  app.modes.register(rawMode)  // fallback
+
+  // 主题
+  const theme = new ThemeManager()
+
+  // 初始化 App
   try {
-    config = await fetchConfig()
-  } catch (e) {
-    document.getElementById('content')!.innerHTML =
-      '<div class="welcome"><h2>Error</h2><p>Failed to load config</p></div>'
+    await app.init()
+  } catch (e: any) {
+    document.getElementById('app')!.innerHTML =
+      `<div class="welcome"><h2>Error</h2><p>${e.message}</p></div>`
     return
   }
 
-  const root = (config.root as string) || '..'
-  document.title = (config.title as string) || 'Unipane'
+  // 初始化主题
+  theme.init(app.config || {})
 
-  // Initialize core modules
-  const router = new Router()
-  const theme = new ThemeManager()
-  const sidebar = new Sidebar(router, theme)
+  // 统一工具栏
+  setupToolbar(app)
 
-  router.setConfig(config as any, root)
-
-  // Tab bar rendering
-  function renderTabs() {
-    const bar = document.getElementById('tab-bar')!
-    bar.innerHTML = ''
-    router.getPanes().forEach(pane => {
-      const tab = document.createElement('div')
-      tab.className = 'tab' + (pane.id === router.getActiveId() ? ' active' : '')
-
-      const label = document.createElement('span')
-      label.textContent = pane.title
-      label.onclick = () => router.navigateTo(
-        pane.type as 'file' | 'page',
-        pane.path || pane.pageId || '',
-      )
-
-      const close = document.createElement('span')
-      close.className = 'close'
-      close.textContent = '×'
-      close.onclick = (e) => {
-        e.stopPropagation()
-        router.closePane(pane.id)
-      }
-
-      tab.appendChild(label)
-      tab.appendChild(close)
-      bar.appendChild(tab)
+  // 主题按钮
+  const toggleTheme = document.getElementById('toggle-theme')
+  if (toggleTheme) {
+    toggleTheme.addEventListener('click', () => {
+      theme.cycleTheme()
+      toggleTheme.textContent = theme.getThemeIcon()
     })
+    toggleTheme.textContent = theme.getThemeIcon()
   }
 
-  // Content rendering
-  async function renderContent(pane: Pane) {
-    const container = document.getElementById('content')!
-    container.innerHTML = ''
-
-    if (pane.type === 'file' && pane.path) {
-      // Directory
-      if (pane.path.endsWith('/')) {
-        // Store tree on window for directory plugin
-        ;(window as any).__unipane_tree = (sidebar as any).tree
-        renderBreadcrumb(container, pane)
-        const ctx = makeContext(container, pane)
-        directoryPlugin.render(ctx)
-        return
-      }
-
-      try {
-        const content = await fetchFile(root + '/' + pane.path)
-        renderBreadcrumb(container, pane)
-        const plugin = findPlugin(pane.path)
-        const ctx = makeContext(container, pane, content)
-        plugin.render(ctx)
-      } catch (e: any) {
-        container.textContent = 'Error: ' + e.message
-      }
-    } else if (pane.type === 'page') {
-      container.textContent = 'Page view not yet implemented'
-    }
-  }
-
-  function makeContext(container: HTMLElement, pane: Pane, content?: string): RenderContext {
-    return {
-      container,
-      filepath: pane.path || '',
-      content: content || null,
-      root,
-      saveFile: async (path: string, content: string) => {
-        await saveFile(path, content)
-      },
-      openFile: (path: string, history?: HistoryEntry[]) => {
-        router.navigateTo('file', path, history)
-      },
-      showBreadcrumb: (items: any[]) => {
-        // Handled by renderBreadcrumb
-      },
-    }
-  }
-
-  function renderBreadcrumb(container: HTMLElement, pane: Pane) {
-    if (!pane.history || pane.history.length === 0) return
-
-    const breadcrumb = document.createElement('div')
-    breadcrumb.className = 'breadcrumb'
-
-    pane.history.forEach((h, i) => {
-      if (i > 0) {
-        const sep = document.createElement('span')
-        sep.className = 'sep'
-        sep.textContent = '>'
-        breadcrumb.appendChild(sep)
-      }
-      const link = document.createElement('a')
-      link.textContent = h.title
-      link.href = '#'
-      link.onclick = (e) => {
-        e.preventDefault()
-        // Trim history and navigate
-        pane.history = pane.history.slice(0, i)
-        router.navigateTo('file', h.path)
-      }
-      breadcrumb.appendChild(link)
+  const toggleCss = document.getElementById('toggle-css')
+  if (toggleCss) {
+    toggleCss.addEventListener('click', () => {
+      theme.cycleCssTheme()
+      toggleCss.textContent = theme.getCssThemeName()
+      toggleCss.classList.toggle('active', theme.isCssThemeActive())
     })
-
-    container.appendChild(breadcrumb)
+    toggleCss.textContent = theme.getCssThemeName()
+    toggleCss.classList.toggle('active', theme.isCssThemeActive())
   }
 
-  // Wire up router callbacks
-  router.setCallbacks(renderTabs, renderContent)
+  // Router
+  const router = new Router(app)
+  router.init()
 
-  // Initialize
-  theme.init(config as any)
-  await sidebar.init(config as any)
-  sidebar.setupHiddenToggle()
-
-  // Theme buttons
-  document.getElementById('toggle-theme')!.addEventListener('click', () => {
-    theme.cycleTheme()
-    document.getElementById('toggle-theme')!.textContent = theme.getThemeIcon()
-  })
-  document.getElementById('toggle-theme')!.textContent = theme.getThemeIcon()
-
-  document.getElementById('toggle-css')!.addEventListener('click', () => {
-    theme.cycleCssTheme()
-    const btn = document.getElementById('toggle-css')!
-    btn.textContent = theme.getCssThemeName()
-    btn.classList.toggle('active', theme.isCssThemeActive())
-  })
-  const cssBtn = document.getElementById('toggle-css')!
-  cssBtn.textContent = theme.getCssThemeName()
-  cssBtn.classList.toggle('active', theme.isCssThemeActive())
-
-  // Internal link handler (for hash links and breadcrumb history)
-  document.getElementById('content')!.addEventListener('click', (e) => {
+  // 内部链接处理
+  document.getElementById('app')!.addEventListener('click', (e) => {
     const a = (e.target as HTMLElement).closest('a')
     if (!a) return
     const href = a.getAttribute('href')
-    if (!href) return
-
-    // Internal hash link (#/file/... or #/page/...)
-    if (href.startsWith('#/')) {
+    if (href && href.startsWith('#/')) {
       e.preventDefault()
-      const pane = router.getActivePane()
-      const newHistory: HistoryEntry[] = pane ? [...pane.history] : []
-      if (pane?.path) {
-        newHistory.push({ path: pane.path, title: pane.title })
-      }
-      router.navigateTo('file', decodeURIComponent(href.replace('#/file/', '')), newHistory)
-      return
+      const path = decodeURIComponent(href.replace('#/file/', ''))
+      app.openFile(path)
     }
   })
+}
 
-  // Start router
-  router.init()
+function setupToolbar(app: App) {
+  const currentBuffer = document.getElementById('current-buffer')
+  const bufferList = document.getElementById('buffer-list')
+
+  const update = () => {
+    // 当前聚焦的 Buffer 名称
+    if (currentBuffer) {
+      currentBuffer.textContent = app.focusedPane?.buffer?.path || ''
+    }
+
+    // Buffer 列表（显示所有 Buffer）
+    if (bufferList) {
+      bufferList.innerHTML = ''
+      const buffers = Array.from(app.buffers.values())
+      buffers.forEach(buf => {
+        const tag = document.createElement('span')
+        tag.className = 'buffer-tag' + (buf === app.focusedPane?.buffer ? ' active' : '')
+
+        const name = document.createElement('span')
+        name.className = 'buffer-tag-name'
+        name.textContent = buf.path.split('/').pop() || buf.path
+        name.title = buf.path
+        name.onclick = () => {
+          // 找到显示该 Buffer 的 Pane 并聚焦
+          const pane = app.rootPane.findPaneByBuffer(buf.path)
+          if (pane) {
+            app.focusedPane = pane
+            app.events.emit('focus-changed', pane)
+            app.updateModeToolbar(buf)
+          }
+        }
+
+        const close = document.createElement('span')
+        close.className = 'buffer-tag-close'
+        close.textContent = '×'
+        close.title = '关闭'
+        close.onclick = (e) => {
+          e.stopPropagation()
+          app.closeBuffer(buf.path)
+        }
+
+        tag.appendChild(name)
+        tag.appendChild(close)
+        bufferList.appendChild(tag)
+      })
+    }
+  }
+
+  app.events.on('buffer-changed', update)
+  app.events.on('buffer-created', update)
+  app.events.on('buffer-closed', update)
+  app.events.on('focus-changed', update)
+  update()
 }
 
 main()
