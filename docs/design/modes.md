@@ -48,13 +48,14 @@ interface ModeContext {
 匹配：`.md` / `.markdown`
 
 功能：
-- 使用 `marked` 渲染 Markdown
+- 使用 `marked` 渲染 Markdown（DOMPurify 防 XSS）
 - 自动修复相对链接为 `#/file/...` 格式
-- Checkbox 交互（点击切换并保存）
+- Checkbox 交互（点击切换并保存，支持大写 X 和缩进）
 - 编辑模式（textarea）
 
 工具栏按钮：
-- 编辑 切换编辑/预览模式
+- 预览模式：[编辑] — 切换到编辑模式
+- 编辑模式：[保存] [取消] — 保存或取消编辑
 
 ### image
 

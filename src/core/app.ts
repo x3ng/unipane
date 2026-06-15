@@ -164,6 +164,16 @@ export class App {
     this.events.emit('buffer-closed', buffer)
   }
 
+  /** 保存 Buffer 内容并退出编辑模式 */
+  async saveFileFromBuffer(buffer: Buffer, content: string): Promise<void> {
+    await saveFile(buffer.path, content)
+    buffer.state.rawContent = content
+    buffer.state.isEditing = false
+    const pane = this.rootPane.findPaneByBuffer(buffer.path)
+    if (pane) this.renderPane(pane, buffer.path)
+    this.updateModeToolbar(buffer)
+  }
+
   makeModeContext(container: HTMLElement, buffer: Buffer, pane: Pane): ModeContext {
     return {
       buffer,

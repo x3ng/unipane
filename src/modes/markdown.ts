@@ -22,32 +22,67 @@ export const markdownMode: Mode = {
 
   render(ctx: ModeContext) {
     const path = ctx.buffer.path
-    fetch(`/${encodePath(path)}`)
-      .then(r => r.ok ? r.text() : Promise.reject(new Error(r.statusText)))
-      .then(content => {
-        ctx.buffer.state.rawContent = content
-        renderMarkdownView(ctx, content)
-      })
-      .catch(err => {
-        ctx.container.textContent = `加载失败: ${err.message}`
-      })
+    const isEditing = ctx.buffer.state.isEditing ?? false
+
+    if (isEditing && ctx.buffer.state.rawContent) {
+      // 编辑模式
+      showEditor(ctx.buffer.state.rawContent, path, ctx)
+    } else {
+      // 预览模式
+      fetch(`/${encodePath(path)}`)
+        .then(r => r.ok ? r.text() : Promise.reject(new Error(r.statusText)))
+        .then(content => {
+          ctx.buffer.state.rawContent = content
+          renderMarkdownView(ctx, content)
+        })
+        .catch(err => {
+          ctx.container.textContent = `加载失败: ${err.message}`
+        })
+    }
   },
 
   renderToolbar(container: HTMLElement, buffer: Buffer, app: App) {
-    const editBtn = document.createElement('button')
-    editBtn.className = 'toolbar-btn'
-    editBtn.textContent = '编辑'
-    editBtn.title = '编辑 Markdown'
-    editBtn.onclick = () => {
-      const pane = app.rootPane.findPaneByBuffer(buffer.path)
-      if (pane && buffer.state.rawContent) {
-        pane.showBuffer(buffer, (container) => {
-          const ctx = app.makeModeContext(container, buffer, pane)
-          showEditor(buffer.state.rawContent, buffer.path, ctx)
-        })
+    const isEditing = buffer.state.isEditing ?? false
+
+    if (isEditing) {
+      // 编辑模式：显示保存和取消
+      const saveBtn = document.createElement('button')
+      saveBtn.className = 'toolbar-btn'
+      saveBtn.textContent = '保存'
+      saveBtn.title = '保存更改'
+      saveBtn.onclick = async () => {
+        const textarea = document.querySelector('.md-editor') as HTMLTextAreaElement
+        if (textarea) {
+          await app.saveFileFromBuffer(buffer, textarea.value)
+        }
       }
+      container.appendChild(saveBtn)
+
+      const cancelBtn = document.createElement('button')
+      cancelBtn.className = 'toolbar-btn'
+      cancelBtn.textContent = '取消'
+      cancelBtn.title = '取消编辑'
+      cancelBtn.onclick = () => {
+        buffer.state.isEditing = false
+        const pane = app.rootPane.findPaneByBuffer(buffer.path)
+        if (pane) app.renderPane(pane, buffer.path)
+        app.updateModeToolbar(buffer)
+      }
+      container.appendChild(cancelBtn)
+    } else {
+      // 预览模式：显示编辑按钮
+      const editBtn = document.createElement('button')
+      editBtn.className = 'toolbar-btn'
+      editBtn.textContent = '编辑'
+      editBtn.title = '编辑 Markdown'
+      editBtn.onclick = () => {
+        buffer.state.isEditing = true
+        const pane = app.rootPane.findPaneByBuffer(buffer.path)
+        if (pane) app.renderPane(pane, buffer.path)
+        app.updateModeToolbar(buffer)
+      }
+      container.appendChild(editBtn)
     }
-    container.appendChild(editBtn)
   },
 }
 
@@ -88,7 +123,6 @@ function setupCheckboxes(div: HTMLElement, path: string, ctx: ModeContext) {
         .then(r => r.text())
         .then(content => {
           let idx = 0
-          // 支持大写 X 和缩进的 checkbox
           const updated = content.replace(/^(\s*)- \[[ xX]\]/gm, (match, indent) => {
             if (idx === i) { idx++; return `${indent}- ${input.checked ? '[x]' : '[ ]'}` }
             idx++
@@ -104,29 +138,5 @@ function showEditor(content: string, path: string, ctx: ModeContext) {
   const textarea = document.createElement('textarea')
   textarea.className = 'md-editor'
   textarea.value = content
-
-  const btns = document.createElement('div')
-  btns.className = 'md-editor-btns'
-
-  const saveBtn = document.createElement('button')
-  saveBtn.textContent = '保存'
-  saveBtn.onclick = async () => {
-    await ctx.saveFile(path, textarea.value)
-    ctx.buffer.state.rawContent = textarea.value
-    const pane = ctx.app.rootPane.findPaneByBuffer(path)
-    if (pane) ctx.app.renderPane(pane, path)
-  }
-
-  const cancelBtn = document.createElement('button')
-  cancelBtn.textContent = '取消'
-  cancelBtn.onclick = () => {
-    const pane = ctx.app.rootPane.findPaneByBuffer(path)
-    if (pane) ctx.app.renderPane(pane, path)
-  }
-
-  btns.appendChild(saveBtn)
-  btns.appendChild(cancelBtn)
-  ctx.container.innerHTML = ''
-  ctx.container.appendChild(btns)
   ctx.container.appendChild(textarea)
 }

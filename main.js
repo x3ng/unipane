@@ -355,6 +355,16 @@
       this.buffers.delete(path);
       this.events.emit("buffer-closed", buffer);
     }
+    /** 保存 Buffer 内容并退出编辑模式 */
+    async saveFileFromBuffer(buffer, content) {
+      await saveFile(buffer.path, content);
+      buffer.state.rawContent = content;
+      buffer.state.isEditing = false;
+      const pane = this.rootPane.findPaneByBuffer(buffer.path);
+      if (pane)
+        this.renderPane(pane, buffer.path);
+      this.updateModeToolbar(buffer);
+    }
     makeModeContext(container, buffer, pane) {
       return {
         buffer,
@@ -471,28 +481,58 @@
     },
     render(ctx) {
       const path = ctx.buffer.path;
-      fetch(`/${encodePath(path)}`).then((r) => r.ok ? r.text() : Promise.reject(new Error(r.statusText))).then((content) => {
-        ctx.buffer.state.rawContent = content;
-        renderMarkdownView(ctx, content);
-      }).catch((err) => {
-        ctx.container.textContent = `\u52A0\u8F7D\u5931\u8D25: ${err.message}`;
-      });
+      const isEditing = ctx.buffer.state.isEditing ?? false;
+      if (isEditing && ctx.buffer.state.rawContent) {
+        showEditor(ctx.buffer.state.rawContent, path, ctx);
+      } else {
+        fetch(`/${encodePath(path)}`).then((r) => r.ok ? r.text() : Promise.reject(new Error(r.statusText))).then((content) => {
+          ctx.buffer.state.rawContent = content;
+          renderMarkdownView(ctx, content);
+        }).catch((err) => {
+          ctx.container.textContent = `\u52A0\u8F7D\u5931\u8D25: ${err.message}`;
+        });
+      }
     },
     renderToolbar(container, buffer, app) {
-      const editBtn = document.createElement("button");
-      editBtn.className = "toolbar-btn";
-      editBtn.textContent = "\u7F16\u8F91";
-      editBtn.title = "\u7F16\u8F91 Markdown";
-      editBtn.onclick = () => {
-        const pane = app.rootPane.findPaneByBuffer(buffer.path);
-        if (pane && buffer.state.rawContent) {
-          pane.showBuffer(buffer, (container2) => {
-            const ctx = app.makeModeContext(container2, buffer, pane);
-            showEditor(buffer.state.rawContent, buffer.path, ctx);
-          });
-        }
-      };
-      container.appendChild(editBtn);
+      const isEditing = buffer.state.isEditing ?? false;
+      if (isEditing) {
+        const saveBtn = document.createElement("button");
+        saveBtn.className = "toolbar-btn";
+        saveBtn.textContent = "\u4FDD\u5B58";
+        saveBtn.title = "\u4FDD\u5B58\u66F4\u6539";
+        saveBtn.onclick = async () => {
+          const textarea = document.querySelector(".md-editor");
+          if (textarea) {
+            await app.saveFileFromBuffer(buffer, textarea.value);
+          }
+        };
+        container.appendChild(saveBtn);
+        const cancelBtn = document.createElement("button");
+        cancelBtn.className = "toolbar-btn";
+        cancelBtn.textContent = "\u53D6\u6D88";
+        cancelBtn.title = "\u53D6\u6D88\u7F16\u8F91";
+        cancelBtn.onclick = () => {
+          buffer.state.isEditing = false;
+          const pane = app.rootPane.findPaneByBuffer(buffer.path);
+          if (pane)
+            app.renderPane(pane, buffer.path);
+          app.updateModeToolbar(buffer);
+        };
+        container.appendChild(cancelBtn);
+      } else {
+        const editBtn = document.createElement("button");
+        editBtn.className = "toolbar-btn";
+        editBtn.textContent = "\u7F16\u8F91";
+        editBtn.title = "\u7F16\u8F91 Markdown";
+        editBtn.onclick = () => {
+          buffer.state.isEditing = true;
+          const pane = app.rootPane.findPaneByBuffer(buffer.path);
+          if (pane)
+            app.renderPane(pane, buffer.path);
+          app.updateModeToolbar(buffer);
+        };
+        container.appendChild(editBtn);
+      }
     }
   };
   function renderMarkdownView(ctx, content) {
@@ -552,28 +592,6 @@
     const textarea = document.createElement("textarea");
     textarea.className = "md-editor";
     textarea.value = content;
-    const btns = document.createElement("div");
-    btns.className = "md-editor-btns";
-    const saveBtn = document.createElement("button");
-    saveBtn.textContent = "\u4FDD\u5B58";
-    saveBtn.onclick = async () => {
-      await ctx.saveFile(path, textarea.value);
-      ctx.buffer.state.rawContent = textarea.value;
-      const pane = ctx.app.rootPane.findPaneByBuffer(path);
-      if (pane)
-        ctx.app.renderPane(pane, path);
-    };
-    const cancelBtn = document.createElement("button");
-    cancelBtn.textContent = "\u53D6\u6D88";
-    cancelBtn.onclick = () => {
-      const pane = ctx.app.rootPane.findPaneByBuffer(path);
-      if (pane)
-        ctx.app.renderPane(pane, path);
-    };
-    btns.appendChild(saveBtn);
-    btns.appendChild(cancelBtn);
-    ctx.container.innerHTML = "";
-    ctx.container.appendChild(btns);
     ctx.container.appendChild(textarea);
   }
 
