@@ -110,7 +110,12 @@ function fixLinks(div: HTMLElement, filepath: string) {
       if (p === '..') { if (resolved.length > 0) resolved.pop(); continue }
       resolved.push(p)
     }
-    a.setAttribute('href', '#/file/' + encodeURIComponent(resolved.join('/')))
+    // 区分目录链接（以 / 结尾）和文件链接
+    const isDirectory = href.endsWith('/') || href === ''
+    const prefix = isDirectory ? '#/dir/' : '#/file/'
+    const suffix = isDirectory ? '/' : ''
+    const encoded = resolved.map(s => encodeURIComponent(s)).join('/')
+    a.setAttribute('href', prefix + encoded + suffix)
   })
 }
 

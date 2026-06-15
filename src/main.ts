@@ -88,8 +88,17 @@ async function main() {
       const a = (e.target as HTMLElement).closest('a')
       if (!a) return
       const href = a.getAttribute('href')
-      if (href && href.startsWith('#/')) {
-        e.preventDefault()
+      if (!href || !href.startsWith('#/')) return
+      e.preventDefault()
+      if (href.startsWith('#/dir/')) {
+        // 目录链接：在当前 Pane 打开目录视图
+        const path = decodeURIComponent(href.replace('#/dir/', '').replace(/\/$/, ''))
+        const pane = app.focusedPane || app.mainPane
+        if (pane) {
+          app.renderPane(pane, path || '/', 'directory')
+        }
+      } else if (href.startsWith('#/file/')) {
+        // 文件链接
         const path = decodeURIComponent(href.replace('#/file/', ''))
         app.openFile(path)
       }
@@ -132,7 +141,12 @@ function setupToolbar(app: App) {
 
   const update = () => {
     if (currentBuffer) {
-      currentBuffer.textContent = app.focusedPane?.buffer?.path || ''
+      const buf = app.focusedPane?.buffer
+      if (buf) {
+        currentBuffer.textContent = `${buf.mode.name}:${buf.path}`
+      } else {
+        currentBuffer.textContent = ''
+      }
     }
 
     // 如果没有聚焦的 Buffer，清空 mode toolbar

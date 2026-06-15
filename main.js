@@ -892,7 +892,11 @@
         }
         resolved.push(p);
       }
-      a.setAttribute("href", "#/file/" + encodeURIComponent(resolved.join("/")));
+      const isDirectory = href.endsWith("/") || href === "";
+      const prefix = isDirectory ? "#/dir/" : "#/file/";
+      const suffix = isDirectory ? "/" : "";
+      const encoded = resolved.map((s) => encodeURIComponent(s)).join("/");
+      a.setAttribute("href", prefix + encoded + suffix);
     });
   }
   function setupCheckboxes(div, path, ctx) {
@@ -1227,8 +1231,16 @@
         if (!a)
           return;
         const href = a.getAttribute("href");
-        if (href && href.startsWith("#/")) {
-          e.preventDefault();
+        if (!href || !href.startsWith("#/"))
+          return;
+        e.preventDefault();
+        if (href.startsWith("#/dir/")) {
+          const path = decodeURIComponent(href.replace("#/dir/", "").replace(/\/$/, ""));
+          const pane = app.focusedPane || app.mainPane;
+          if (pane) {
+            app.renderPane(pane, path || "/", "directory");
+          }
+        } else if (href.startsWith("#/file/")) {
           const path = decodeURIComponent(href.replace("#/file/", ""));
           app.openFile(path);
         }
@@ -1262,7 +1274,12 @@
     const modeToolbar = document.getElementById("mode-toolbar");
     const update = () => {
       if (currentBuffer) {
-        currentBuffer.textContent = app.focusedPane?.buffer?.path || "";
+        const buf = app.focusedPane?.buffer;
+        if (buf) {
+          currentBuffer.textContent = `${buf.mode.name}:${buf.path}`;
+        } else {
+          currentBuffer.textContent = "";
+        }
       }
       if (modeToolbar && !app.focusedPane?.buffer) {
         modeToolbar.innerHTML = "";
