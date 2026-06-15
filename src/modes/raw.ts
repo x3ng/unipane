@@ -3,6 +3,11 @@
 import type { Mode } from '../core/mode-registry'
 import type { ModeContext } from '../core/mode-registry'
 
+/** 编码路径，正确处理 #、?、& 等特殊字符 */
+function encodePath(path: string): string {
+  return path.split('/').map(segment => encodeURIComponent(segment)).join('/')
+}
+
 export const rawMode: Mode = {
   name: 'raw',
 
@@ -12,7 +17,7 @@ export const rawMode: Mode = {
 
   render(ctx: ModeContext) {
     const path = ctx.buffer.path
-    fetch(`/${encodeURI(path)}`)
+    fetch(`/${encodePath(path)}`)
       .then(r => r.ok ? r.text() : Promise.reject(new Error(r.statusText)))
       .then(content => {
         const pre = document.createElement('pre')

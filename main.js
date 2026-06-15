@@ -461,6 +461,9 @@
   };
 
   // src/modes/markdown.ts
+  function encodePath(path) {
+    return path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  }
   var markdownMode = {
     name: "markdown",
     match(path) {
@@ -468,7 +471,7 @@
     },
     render(ctx) {
       const path = ctx.buffer.path;
-      fetch(`/${encodeURI(path)}`).then((r) => r.ok ? r.text() : Promise.reject(new Error(r.statusText))).then((content) => {
+      fetch(`/${encodePath(path)}`).then((r) => r.ok ? r.text() : Promise.reject(new Error(r.statusText))).then((content) => {
         ctx.buffer.state.rawContent = content;
         renderMarkdownView(ctx, content);
       }).catch((err) => {
@@ -530,12 +533,12 @@
       const input = cb;
       input.dataset.index = String(i);
       input.addEventListener("change", () => {
-        fetch(`/${encodeURI(path)}`).then((r) => r.text()).then((content) => {
+        fetch(`/${encodePath(path)}`).then((r) => r.text()).then((content) => {
           let idx = 0;
-          const updated = content.replace(/- \[[ x]\]/g, (match) => {
+          const updated = content.replace(/^(\s*)- \[[ xX]\]/gm, (match, indent) => {
             if (idx === i) {
               idx++;
-              return input.checked ? "- [x]" : "- [ ]";
+              return `${indent}- ${input.checked ? "[x]" : "[ ]"}`;
             }
             idx++;
             return match;
@@ -575,6 +578,9 @@
   }
 
   // src/modes/image.ts
+  function encodePath2(path) {
+    return path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  }
   var imageMode = {
     name: "image",
     match(path) {
@@ -582,7 +588,7 @@
     },
     render(ctx) {
       const img = document.createElement("img");
-      img.src = `/${encodeURI(ctx.buffer.path)}`;
+      img.src = `/${encodePath2(ctx.buffer.path)}`;
       img.style.maxWidth = "100%";
       img.style.height = "auto";
       img.alt = ctx.buffer.path;
@@ -591,6 +597,9 @@
   };
 
   // src/modes/html.ts
+  function encodePath3(path) {
+    return path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  }
   var htmlMode = {
     name: "html",
     match(path) {
@@ -602,12 +611,15 @@
       iframe.style.width = "100%";
       iframe.style.height = "100%";
       iframe.style.border = "none";
-      iframe.src = `/${encodeURI(ctx.buffer.path)}`;
+      iframe.src = `/${encodePath3(ctx.buffer.path)}`;
       ctx.container.appendChild(iframe);
     }
   };
 
   // src/modes/raw.ts
+  function encodePath4(path) {
+    return path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  }
   var rawMode = {
     name: "raw",
     match(_path) {
@@ -615,7 +627,7 @@
     },
     render(ctx) {
       const path = ctx.buffer.path;
-      fetch(`/${encodeURI(path)}`).then((r) => r.ok ? r.text() : Promise.reject(new Error(r.statusText))).then((content) => {
+      fetch(`/${encodePath4(path)}`).then((r) => r.ok ? r.text() : Promise.reject(new Error(r.statusText))).then((content) => {
         const pre = document.createElement("pre");
         pre.textContent = content;
         pre.style.whiteSpace = "pre-wrap";

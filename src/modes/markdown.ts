@@ -8,6 +8,11 @@ import type { App } from '../core/app'
 declare const marked: { parse(src: string): string }
 declare const DOMPurify: { sanitize(html: string): string }
 
+/** 编码路径，正确处理 #、?、& 等特殊字符 */
+function encodePath(path: string): string {
+  return path.split('/').map(segment => encodeURIComponent(segment)).join('/')
+}
+
 export const markdownMode: Mode = {
   name: 'markdown',
 
@@ -17,7 +22,7 @@ export const markdownMode: Mode = {
 
   render(ctx: ModeContext) {
     const path = ctx.buffer.path
-    fetch(`/${encodeURI(path)}`)
+    fetch(`/${encodePath(path)}`)
       .then(r => r.ok ? r.text() : Promise.reject(new Error(r.statusText)))
       .then(content => {
         ctx.buffer.state.rawContent = content
@@ -79,12 +84,13 @@ function setupCheckboxes(div: HTMLElement, path: string, ctx: ModeContext) {
     const input = cb as HTMLInputElement
     input.dataset.index = String(i)
     input.addEventListener('change', () => {
-      fetch(`/${encodeURI(path)}`)
+      fetch(`/${encodePath(path)}`)
         .then(r => r.text())
         .then(content => {
           let idx = 0
-          const updated = content.replace(/- \[[ x]\]/g, match => {
-            if (idx === i) { idx++; return input.checked ? '- [x]' : '- [ ]' }
+          // 支持大写 X 和缩进的 checkbox
+          const updated = content.replace(/^(\s*)- \[[ xX]\]/gm, (match, indent) => {
+            if (idx === i) { idx++; return `${indent}- ${input.checked ? '[x]' : '[ ]'}` }
             idx++
             return match
           })

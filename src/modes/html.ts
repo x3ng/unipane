@@ -3,6 +3,11 @@
 import type { Mode } from '../core/mode-registry'
 import type { ModeContext } from '../core/mode-registry'
 
+/** 编码路径，正确处理 #、?、& 等特殊字符 */
+function encodePath(path: string): string {
+  return path.split('/').map(segment => encodeURIComponent(segment)).join('/')
+}
+
 export const htmlMode: Mode = {
   name: 'html',
 
@@ -16,7 +21,7 @@ export const htmlMode: Mode = {
     iframe.style.width = '100%'
     iframe.style.height = '100%'
     iframe.style.border = 'none'
-    iframe.src = `/${encodeURI(ctx.buffer.path)}`
+    iframe.src = `/${encodePath(ctx.buffer.path)}`
     ctx.container.appendChild(iframe)
   },
 }
