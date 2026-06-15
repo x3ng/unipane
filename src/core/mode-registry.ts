@@ -18,7 +18,6 @@ export interface Mode {
   name: string
   match(path: string): boolean
   render(ctx: ModeContext): void
-  destroy?(ctx: ModeContext): void
   renderToolbar?(container: HTMLElement, buffer: Buffer, app: App): void
 }
 

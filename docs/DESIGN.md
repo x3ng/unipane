@@ -43,4 +43,5 @@ src/
 - [架构详解](design/architecture.md) — 模块职责、启动流程、技术选型
 - [Buffer Viewer 模型](design/buffer-viewer.md) — Pane / Buffer / Mode 设计哲学
 - [Mode 系统](design/modes.md) — Mode 接口、内置 Mode、如何扩展
+- [Content/Mode 分离](design/content-mode-separation.md) — Buffer 持有内容、Mode 只管渲染（规划中）
 - [路线图](design/roadmap.md) — 已完成、近期计划、长期方向

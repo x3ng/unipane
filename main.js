@@ -571,6 +571,15 @@
         this.app.openFile(path);
         return;
       }
+      const dirMatch = hash.match(/^#\/dir\/(.*)$/);
+      if (dirMatch) {
+        const path = decodeURIComponent(dirMatch[1]).replace(/\/$/, "");
+        const pane = this.app.focusedPane || this.app.mainPane;
+        if (pane) {
+          this.app.renderPane(pane, path || "/", "directory");
+        }
+        return;
+      }
       const pageMatch = hash.match(/^#\/page\/(.+)$/);
       if (pageMatch) {
         console.warn("Page view not yet implemented:", pageMatch[1]);

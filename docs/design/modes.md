@@ -7,7 +7,6 @@ interface Mode {
   name: string
   match(path: string): boolean
   render(ctx: ModeContext): void
-  destroy?(ctx: ModeContext): void
   renderToolbar?(container: HTMLElement, buffer: Buffer, app: App): void
 }
 ```
@@ -49,7 +48,7 @@ interface ModeContext {
 
 功能：
 - 使用 `marked` 渲染 Markdown（DOMPurify 防 XSS）
-- 自动修复相对链接为 `#/file/...` 格式
+- 自动修复相对链接：目录链接（`/` 结尾）→ `#/dir/...`，文件链接 → `#/file/...`
 - Checkbox 交互（点击切换并保存，支持大写 X 和缩进）
 - 编辑模式（textarea）
 
@@ -91,16 +90,6 @@ app.modes.register(markdownMode)
 app.modes.register(bufferListMode)
 app.modes.register(rawMode)         // 兜底
 ```
-
-## 快捷键
-
-| 快捷键 | 功能 |
-|--------|------|
-| `Ctrl+K` | 命令面板 |
-| `Ctrl+Shift+P` | 文件搜索 |
-| `Ctrl+B` | 切换侧边栏 |
-| `Ctrl+W` | 关闭当前 Buffer |
-| `Escape` | 关闭面板 |
 
 ## 添加自定义 Mode
 

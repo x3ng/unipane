@@ -20,7 +20,7 @@
 | **Pane** | `pane.ts` | 显示容器。递归结构：叶子节点显示 Buffer，分支节点分割为子 Pane。支持水平/垂直分割、拖拽 resize |
 | **Buffer** | `buffer.ts` | 内容实例。持有路径、绑定的 Mode、运行时状态（showHidden 等）。同一文件只创建一个 Buffer |
 | **ModeRegistry** | `mode-registry.ts` | Mode 注册表。按顺序匹配文件路径，返回对应 Mode |
-| **Router** | `router.ts` | URL hash 路由。解析 `#/file/<path>` 调用 `app.openFile()` |
+| **Router** | `router.ts` | URL hash 路由。解析 `#/file/<path>` → openFile，`#/dir/<path>` → directory mode |
 | **EventBus** | `events.ts` | 简单 pub/sub。支持事件：buffer-changed、buffer-created、buffer-closed、focus-changed |
 | **ThemeManager** | `theme.ts` | 明暗主题 + CSS 主题切换 |
 | **API** | `api.ts` | HTTP 封装：fetchConfig、fetchTree、saveFile |
@@ -41,7 +41,7 @@
 统一工具栏，左边 Mode 按钮，右边全局按钮：
 
 ```
-[Mode 按钮] [当前文件名] ←→ [Buffer 列表 ×] [Aa] [◐]
+[Mode 按钮] [mode:path] ←→ [Buffer 列表 ×] [Aa] [◐]
 ```
 
 - **Mode 按钮**：由 `mode.renderToolbar()` 渲染，绑定到当前聚焦的 Buffer
@@ -100,6 +100,12 @@ RootPane (horizontal)
 ├── SidePane (20%) → directory Buffer（树形视图）
 └── MainPane (80%) → 文件内容 Buffer
 ```
+
+## 下一步：Content/Mode 分离
+
+当前 Mode 同时负责 fetch 和 render，计划拆分为 Buffer 持有内容、Mode 只管渲染。
+
+详见 [content-mode-separation.md](content-mode-separation.md)。
 
 ## 技术选型
 

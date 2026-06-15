@@ -59,8 +59,12 @@
 
 ## 长期方向
 
-### 架构改进（来自 code review）
-- [ ] Buffer 添加 `load()` 方法 — 统一内容获取，支持缓存和加载状态
+### 架构改进
+- [ ] **Content/Mode 分离** — Buffer 持有内容，Mode 只管渲染（详见 [content-mode-separation.md](content-mode-separation.md)）
+  - [ ] 阶段一：Buffer 添加 content 字段，Mode fetch 后写入
+  - [ ] 阶段二：fetch 逻辑移到 Buffer.load()
+  - [ ] 阶段三：Mode.canHandle + switchMode
+  - [ ] 阶段四：Mode 分层复用（mixin）
 - [ ] App 拆分为 App + BufferManager — 减少 god object 问题
 - [ ] EventBus 类型化 — 添加事件类型映射，编译时检查
 - [ ] Buffer.state 类型化 — 每个 Mode 定义自己的 state 接口
