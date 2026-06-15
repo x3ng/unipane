@@ -92,6 +92,16 @@ app.modes.register(bufferListMode)
 app.modes.register(rawMode)         // 兜底
 ```
 
+## 快捷键
+
+| 快捷键 | 功能 |
+|--------|------|
+| `Ctrl+K` | 命令面板 |
+| `Ctrl+Shift+P` | 文件搜索 |
+| `Ctrl+B` | 切换侧边栏 |
+| `Ctrl+W` | 关闭当前 Buffer |
+| `Escape` | 关闭面板 |
+
 ## 添加自定义 Mode
 
 ```typescript

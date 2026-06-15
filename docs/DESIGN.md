@@ -39,6 +39,7 @@ src/
 
 ## 设计文档
 
+- [设计原则](design/principles.md) — 层级规则、操作边界、安全层原则
 - [架构详解](design/architecture.md) — 模块职责、启动流程、技术选型
 - [Buffer Viewer 模型](design/buffer-viewer.md) — Pane / Buffer / Mode 设计哲学
 - [Mode 系统](design/modes.md) — Mode 接口、内置 Mode、如何扩展

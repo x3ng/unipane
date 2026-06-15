@@ -4,6 +4,7 @@ import { Pane } from './pane'
 import { Buffer } from './buffer'
 import { ModeRegistry } from './mode-registry'
 import { EventBus } from './events'
+import { CommandRegistry } from './commands'
 import { fetchTree, fetchConfig, saveFile } from './api'
 import type { Config, TreeItem } from './types'
 import type { ModeContext } from './mode-registry'
@@ -13,6 +14,7 @@ export class App {
   buffers: Map<string, Buffer> = new Map()
   modes: ModeRegistry
   events: EventBus
+  commands: CommandRegistry
   config: Config | null = null
   tree: TreeItem[] | null = null
   root: string = ''
@@ -24,6 +26,7 @@ export class App {
     this.rootPane.element.id = 'root-pane'
     this.modes = new ModeRegistry()
     this.events = new EventBus()
+    this.commands = new CommandRegistry(this)
   }
 
   async init(): Promise<void> {
@@ -88,13 +91,21 @@ export class App {
     setupClick(this.rootPane)
   }
 
-  /** 打开文件到指定 Pane（默认聚焦的 Pane） */
+  /** 打开文件到指定 Pane（默认聚焦的 Pane，回退到主 Pane） */
   openFile(path: string, targetPane?: Pane): void {
-    const pane = targetPane || this.focusedPane
-    if (!pane) return
+    const pane = targetPane || this.focusedPane || this.mainPane
+    console.log('[app] openFile:', path, 'pane:', pane?.id, 'focusedPane:', this.focusedPane?.id, 'mainPane:', this.mainPane?.id)
+    if (!pane) {
+      console.warn('[app] openFile: no pane available')
+      return
+    }
     const buffer = this.getBuffer(path) || this.createBuffer(path)
-    if (!buffer) return
+    if (!buffer) {
+      console.warn('[app] openFile: failed to create buffer for', path)
+      return
+    }
     this.renderPane(pane, path)
+    this.focusedPane = pane
     this.events.emit('buffer-changed', buffer)
     this.updateModeToolbar(buffer)
   }
@@ -152,16 +163,53 @@ export class App {
     const buffer = this.buffers.get(path)
     if (!buffer) return
 
-    // 清除显示该 Buffer 的 Pane
+    // 找到显示该 Buffer 的 Pane
     for (const leaf of this.rootPane.getLeaves()) {
       if (leaf.buffer === buffer) {
+        // 如果是侧边 Pane，隐藏整个 Pane
+        if (leaf !== this.mainPane) {
+          leaf.hide()
+        }
         leaf.clearBuffer()
         break
       }
     }
 
+    // 如果关闭的是聚焦的 Buffer，清除聚焦
+    if (this.focusedPane?.buffer === buffer) {
+      this.focusedPane = null
+    }
+
     this.buffers.delete(path)
     this.events.emit('buffer-closed', buffer)
+
+    // 如果主 Pane 为空，显示命令面板 fallback
+    if (this.mainPane && !this.mainPane.buffer) {
+      console.log('[app] mainPane is empty, showing welcome')
+      this.showWelcome()
+    }
+
+    console.log('[app] after closeBuffer - focusedPane:', this.focusedPane?.id, 'buffers:', this.buffers.size)
+  }
+
+  /** 显示欢迎/命令面板 fallback */
+  showWelcome(): void {
+    if (!this.mainPane) return
+    this.mainPane.element.innerHTML = ''
+    this.mainPane.buffer = null
+
+    const container = document.createElement('div')
+    container.className = 'welcome-fallback'
+
+    const title = document.createElement('h2')
+    title.textContent = 'Unipane'
+
+    const hint = document.createElement('p')
+    hint.textContent = '按 Ctrl+K 打开命令面板，Ctrl+Shift+P 搜索文件'
+
+    container.appendChild(title)
+    container.appendChild(hint)
+    this.mainPane.element.appendChild(container)
   }
 
   /** 保存 Buffer 内容并退出编辑模式 */

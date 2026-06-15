@@ -13,6 +13,8 @@ export class Pane {
   buffer: Buffer | null = null
   element: HTMLElement
   contentEl: HTMLElement | null = null  // buffer 渲染容器
+  private _visible: boolean = true
+  private _resizeHandle: HTMLElement | null = null  // 相邻的 resize handle
 
   constructor(parent: Pane | null = null) {
     this.id = `pane-${++paneId}`
@@ -24,6 +26,53 @@ export class Pane {
 
   get isLeaf(): boolean {
     return this.children === null
+  }
+
+  get visible(): boolean {
+    return this._visible
+  }
+
+  /** 隐藏 Pane */
+  hide(): void {
+    this._visible = false
+    this.element.style.display = 'none'
+    // 隐藏相邻的 resize handle
+    if (this._resizeHandle) {
+      this._resizeHandle.style.display = 'none'
+    }
+    // 让兄弟 Pane 铺满空间
+    this.updateSiblingFlex()
+  }
+
+  /** 显示 Pane */
+  show(): void {
+    this._visible = true
+    this.element.style.display = ''
+    // 显示相邻的 resize handle
+    if (this._resizeHandle) {
+      this._resizeHandle.style.display = ''
+    }
+    // 恢复兄弟 Pane 的 flex
+    this.updateSiblingFlex()
+  }
+
+  /** 设置相邻的 resize handle */
+  setResizeHandle(handle: HTMLElement): void {
+    this._resizeHandle = handle
+  }
+
+  /** 更新兄弟 Pane 的 flex 比例 */
+  private updateSiblingFlex(): void {
+    if (!this.parent || !this.parent.children) return
+    const [left, right] = this.parent.children
+    const sibling = left === this ? right : left
+    if (this._visible) {
+      // 恢复原始比例
+      sibling.element.style.flex = `${sibling.ratio}`
+    } else {
+      // 兄弟铺满
+      sibling.element.style.flex = '1'
+    }
   }
 
   /** 分割当前 Pane，返回两个子 Pane */
@@ -57,6 +106,10 @@ export class Pane {
     handle.style.flexShrink = '0'
     this.setupResizeHandle(handle, left, right)
     this.element.appendChild(handle)
+
+    // 设置 resize handle 引用
+    left.setResizeHandle(handle)
+    right.setResizeHandle(handle)
 
     this.element.appendChild(right.element)
 

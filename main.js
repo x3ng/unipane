@@ -3,13 +3,16 @@
   // src/core/pane.ts
   var paneId = 0;
   var Pane = class _Pane {
-    // buffer 渲染容器
+    // 相邻的 resize handle
     constructor(parent = null) {
       this.children = null;
       this.direction = null;
       this.ratio = 1;
       this.buffer = null;
       this.contentEl = null;
+      // buffer 渲染容器
+      this._visible = true;
+      this._resizeHandle = null;
       this.id = `pane-${++paneId}`;
       this.parent = parent;
       this.element = document.createElement("div");
@@ -18,6 +21,43 @@
     }
     get isLeaf() {
       return this.children === null;
+    }
+    get visible() {
+      return this._visible;
+    }
+    /** 隐藏 Pane */
+    hide() {
+      this._visible = false;
+      this.element.style.display = "none";
+      if (this._resizeHandle) {
+        this._resizeHandle.style.display = "none";
+      }
+      this.updateSiblingFlex();
+    }
+    /** 显示 Pane */
+    show() {
+      this._visible = true;
+      this.element.style.display = "";
+      if (this._resizeHandle) {
+        this._resizeHandle.style.display = "";
+      }
+      this.updateSiblingFlex();
+    }
+    /** 设置相邻的 resize handle */
+    setResizeHandle(handle) {
+      this._resizeHandle = handle;
+    }
+    /** 更新兄弟 Pane 的 flex 比例 */
+    updateSiblingFlex() {
+      if (!this.parent || !this.parent.children)
+        return;
+      const [left, right] = this.parent.children;
+      const sibling = left === this ? right : left;
+      if (this._visible) {
+        sibling.element.style.flex = `${sibling.ratio}`;
+      } else {
+        sibling.element.style.flex = "1";
+      }
     }
     /** 分割当前 Pane，返回两个子 Pane */
     split(dir, ratio = 0.5) {
@@ -44,6 +84,8 @@
       handle.style.flexShrink = "0";
       this.setupResizeHandle(handle, left, right);
       this.element.appendChild(handle);
+      left.setResizeHandle(handle);
+      right.setResizeHandle(handle);
       this.element.appendChild(right.element);
       if (savedBuffer) {
         left.showBuffer(savedBuffer, () => {
@@ -204,6 +246,103 @@
     }
   };
 
+  // src/core/commands.ts
+  var CommandRegistry = class {
+    constructor(app) {
+      this.commands = /* @__PURE__ */ new Map();
+      this.app = app;
+    }
+    /** 注册命令 */
+    register(command) {
+      this.commands.set(command.id, command);
+    }
+    /** 获取所有命令（按分类排序） */
+    getAll() {
+      const cmds = Array.from(this.commands.values());
+      return cmds.sort((a, b) => {
+        if (a.category !== b.category)
+          return a.category === "global" ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+    }
+    /** 获取可用命令 */
+    getAvailable() {
+      return this.getAll().filter((cmd) => cmd.isAvailable());
+    }
+    /** 按 ID 获取命令 */
+    get(id) {
+      return this.commands.get(id);
+    }
+    /** 注册内置全局命令 */
+    registerBuiltin() {
+      const app = this.app;
+      this.register({
+        id: "open-file",
+        name: "\u6253\u5F00\u6587\u4EF6",
+        category: "global",
+        shortcut: "Ctrl+Shift+P",
+        isAvailable: () => true,
+        execute: () => {
+          app.events.emit("command-palette", { mode: "file-search" });
+        }
+      });
+      this.register({
+        id: "toggle-sidebar",
+        name: "\u5207\u6362\u4FA7\u8FB9\u680F",
+        category: "global",
+        shortcut: "Ctrl+B",
+        isAvailable: () => true,
+        execute: () => {
+          const sidePane = app.rootPane.children?.[0];
+          if (!sidePane)
+            return;
+          if (sidePane.visible) {
+            sidePane.hide();
+          } else {
+            if (!sidePane.buffer) {
+              app.renderPane(sidePane, "/", "directory");
+            }
+            sidePane.show();
+          }
+        }
+      });
+      this.register({
+        id: "toggle-theme",
+        name: "\u5207\u6362\u660E\u6697\u4E3B\u9898",
+        category: "global",
+        isAvailable: () => true,
+        execute: () => {
+          const btn = document.getElementById("toggle-theme");
+          if (btn)
+            btn.click();
+        }
+      });
+      this.register({
+        id: "toggle-css",
+        name: "\u5207\u6362 CSS \u4E3B\u9898",
+        category: "global",
+        isAvailable: () => true,
+        execute: () => {
+          const btn = document.getElementById("toggle-css");
+          if (btn)
+            btn.click();
+        }
+      });
+      this.register({
+        id: "close-buffer",
+        name: "\u5173\u95ED\u5F53\u524D Buffer",
+        category: "global",
+        shortcut: "Ctrl+W",
+        isAvailable: () => !!app.focusedPane?.buffer,
+        execute: () => {
+          const buffer = app.focusedPane?.buffer;
+          if (buffer)
+            app.closeBuffer(buffer.path);
+        }
+      });
+    }
+  };
+
   // src/core/api.ts
   var bust = (url) => url + (url.includes("?") ? "&" : "?") + "_t=" + Date.now();
   async function fetchConfig() {
@@ -245,6 +384,7 @@
       this.rootPane.element.id = "root-pane";
       this.modes = new ModeRegistry();
       this.events = new EventBus();
+      this.commands = new CommandRegistry(this);
     }
     async init() {
       this.config = await fetchConfig();
@@ -291,15 +431,21 @@
       };
       setupClick(this.rootPane);
     }
-    /** 打开文件到指定 Pane（默认聚焦的 Pane） */
+    /** 打开文件到指定 Pane（默认聚焦的 Pane，回退到主 Pane） */
     openFile(path, targetPane) {
-      const pane = targetPane || this.focusedPane;
-      if (!pane)
+      const pane = targetPane || this.focusedPane || this.mainPane;
+      console.log("[app] openFile:", path, "pane:", pane?.id, "focusedPane:", this.focusedPane?.id, "mainPane:", this.mainPane?.id);
+      if (!pane) {
+        console.warn("[app] openFile: no pane available");
         return;
+      }
       const buffer = this.getBuffer(path) || this.createBuffer(path);
-      if (!buffer)
+      if (!buffer) {
+        console.warn("[app] openFile: failed to create buffer for", path);
         return;
+      }
       this.renderPane(pane, path);
+      this.focusedPane = pane;
       this.events.emit("buffer-changed", buffer);
       this.updateModeToolbar(buffer);
     }
@@ -348,12 +494,39 @@
         return;
       for (const leaf of this.rootPane.getLeaves()) {
         if (leaf.buffer === buffer) {
+          if (leaf !== this.mainPane) {
+            leaf.hide();
+          }
           leaf.clearBuffer();
           break;
         }
       }
+      if (this.focusedPane?.buffer === buffer) {
+        this.focusedPane = null;
+      }
       this.buffers.delete(path);
       this.events.emit("buffer-closed", buffer);
+      if (this.mainPane && !this.mainPane.buffer) {
+        console.log("[app] mainPane is empty, showing welcome");
+        this.showWelcome();
+      }
+      console.log("[app] after closeBuffer - focusedPane:", this.focusedPane?.id, "buffers:", this.buffers.size);
+    }
+    /** 显示欢迎/命令面板 fallback */
+    showWelcome() {
+      if (!this.mainPane)
+        return;
+      this.mainPane.element.innerHTML = "";
+      this.mainPane.buffer = null;
+      const container = document.createElement("div");
+      container.className = "welcome-fallback";
+      const title = document.createElement("h2");
+      title.textContent = "Unipane";
+      const hint = document.createElement("p");
+      hint.textContent = "\u6309 Ctrl+K \u6253\u5F00\u547D\u4EE4\u9762\u677F\uFF0CCtrl+Shift+P \u641C\u7D22\u6587\u4EF6";
+      container.appendChild(title);
+      container.appendChild(hint);
+      this.mainPane.element.appendChild(container);
     }
     /** 保存 Buffer 内容并退出编辑模式 */
     async saveFileFromBuffer(buffer, content) {
@@ -469,6 +642,160 @@
       }
     }
   };
+
+  // src/modes/command-palette.ts
+  function createCommandPalette(app) {
+    let overlay = null;
+    function show(options = { mode: "command" }) {
+      console.log("[palette] show called, mode:", options.mode);
+      if (overlay)
+        hide();
+      overlay = document.createElement("div");
+      overlay.className = "palette-overlay";
+      overlay.onclick = (e) => {
+        if (e.target === overlay)
+          hide();
+      };
+      const box = document.createElement("div");
+      box.className = "palette-box";
+      const input = document.createElement("input");
+      input.className = "palette-input";
+      input.placeholder = options.mode === "file-search" ? "\u641C\u7D22\u6587\u4EF6..." : "\u8F93\u5165\u547D\u4EE4...";
+      box.appendChild(input);
+      const list = document.createElement("div");
+      list.className = "palette-list";
+      box.appendChild(list);
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+      requestAnimationFrame(() => input.focus());
+      let items = [];
+      let selectedIndex = 0;
+      function renderList(filter = "") {
+        items = getItems(options.mode, filter);
+        selectedIndex = 0;
+        list.innerHTML = "";
+        items.forEach((item, i) => {
+          const el = document.createElement("div");
+          el.className = "palette-item" + (i === selectedIndex ? " selected" : "") + (item.disabled ? " disabled" : "");
+          const name = document.createElement("span");
+          name.className = "palette-item-name";
+          name.textContent = item.name;
+          const meta = document.createElement("span");
+          meta.className = "palette-item-meta";
+          meta.textContent = item.meta || "";
+          el.appendChild(name);
+          el.appendChild(meta);
+          el.onclick = () => {
+            if (!item.disabled) {
+              item.execute();
+              hide();
+            }
+          };
+          el.onmouseenter = () => {
+            selectedIndex = i;
+            updateSelection();
+          };
+          list.appendChild(el);
+        });
+      }
+      function updateSelection() {
+        list.querySelectorAll(".palette-item").forEach((el, i) => {
+          el.classList.toggle("selected", i === selectedIndex);
+          el.classList.toggle("disabled", items[i]?.disabled);
+        });
+        const selected = list.querySelector(".palette-item.selected");
+        if (selected)
+          selected.scrollIntoView({ block: "nearest" });
+      }
+      input.oninput = () => renderList(input.value);
+      input.onkeydown = (e) => {
+        if (e.key === "Escape") {
+          hide();
+        } else if (e.key === "ArrowDown") {
+          e.preventDefault();
+          selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+          updateSelection();
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          selectedIndex = Math.max(selectedIndex - 1, 0);
+          updateSelection();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          if (items[selectedIndex] && !items[selectedIndex].disabled) {
+            items[selectedIndex].execute();
+            hide();
+          }
+        }
+      };
+      renderList();
+    }
+    function hide() {
+      if (overlay) {
+        overlay.remove();
+        overlay = null;
+      }
+    }
+    function toggle(options) {
+      if (overlay)
+        hide();
+      else
+        show(options);
+    }
+    function getItems(mode, filter) {
+      const lowerFilter = filter.toLowerCase();
+      if (mode === "file-search") {
+        return getFileItems(lowerFilter);
+      } else if (mode === "buffer-list") {
+        return getBufferItems(lowerFilter);
+      } else {
+        return getCommandItems(lowerFilter);
+      }
+    }
+    function getCommandItems(filter) {
+      const commands = app.commands.getAll();
+      return commands.filter((cmd) => cmd.name.toLowerCase().includes(filter) || cmd.id.includes(filter)).map((cmd) => ({
+        name: cmd.name,
+        meta: cmd.category === "mode" ? `[${cmd.mode}]` : cmd.shortcut || "",
+        disabled: !cmd.isAvailable(),
+        execute: () => cmd.execute()
+      }));
+    }
+    function getFileItems(filter) {
+      const tree = app.tree;
+      if (!tree)
+        return [];
+      const files = [];
+      collectFiles(tree, files, filter, app);
+      return files.slice(0, 50);
+    }
+    function getBufferItems(filter) {
+      const buffers = Array.from(app.buffers.values());
+      return buffers.filter((buf) => buf.path.toLowerCase().includes(filter)).map((buf) => ({
+        name: buf.path.split("/").pop() || buf.path,
+        meta: buf.path,
+        disabled: false,
+        execute: () => app.openFile(buf.path)
+      }));
+    }
+    return { show, hide, toggle };
+  }
+  function collectFiles(items, result, filter, app) {
+    for (const item of items) {
+      if (item.type === "file") {
+        if (!filter || item.name.toLowerCase().includes(filter) || item.path.toLowerCase().includes(filter)) {
+          result.push({
+            name: item.name,
+            meta: item.path,
+            disabled: false,
+            execute: () => app?.openFile(item.path)
+          });
+        }
+      }
+      if (item.children) {
+        collectFiles(item.children, result, filter, app);
+      }
+    }
+  }
 
   // src/modes/markdown.ts
   function encodePath(path) {
@@ -867,6 +1194,11 @@
       return;
     }
     theme.init(app.config || {});
+    app.commands.registerBuiltin();
+    const palette = createCommandPalette(app);
+    app.events.on("command-palette", (options) => {
+      palette.show(options);
+    });
     setupToolbar(app);
     const toggleTheme = document.getElementById("toggle-theme");
     if (toggleTheme) {
@@ -902,13 +1234,38 @@
         }
       });
     }
+    document.addEventListener("keydown", (e) => {
+      if (e.ctrlKey && e.key === "k") {
+        e.preventDefault();
+        palette.toggle();
+      }
+      if (e.ctrlKey && e.shiftKey && e.key === "P") {
+        e.preventDefault();
+        palette.show({ mode: "file-search" });
+      }
+      if (e.ctrlKey && e.key === "b") {
+        e.preventDefault();
+        app.commands.get("toggle-sidebar")?.execute();
+      }
+      if (e.ctrlKey && e.key === "w") {
+        e.preventDefault();
+        app.commands.get("close-buffer")?.execute();
+      }
+      if (e.key === "Escape") {
+        palette.hide();
+      }
+    });
   }
   function setupToolbar(app) {
     const currentBuffer = document.getElementById("current-buffer");
     const bufferList = document.getElementById("buffer-list");
+    const modeToolbar = document.getElementById("mode-toolbar");
     const update = () => {
       if (currentBuffer) {
         currentBuffer.textContent = app.focusedPane?.buffer?.path || "";
+      }
+      if (modeToolbar && !app.focusedPane?.buffer) {
+        modeToolbar.innerHTML = "";
       }
       if (bufferList) {
         bufferList.innerHTML = "";

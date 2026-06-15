@@ -3,6 +3,7 @@
 import { App } from './core/app'
 import { Router } from './core/router'
 import { ThemeManager } from './core/theme'
+import { createCommandPalette } from './modes/command-palette'
 
 // Modes
 import { markdownMode } from './modes/markdown'
@@ -15,13 +16,13 @@ import { bufferListMode } from './modes/buffer-list'
 async function main() {
   const app = new App()
 
-  // 注册 Mode（顺序重要：先匹配的优先）
+  // 注册 Mode
   app.modes.register(directoryMode)
   app.modes.register(imageMode)
   app.modes.register(htmlMode)
   app.modes.register(markdownMode)
   app.modes.register(bufferListMode)
-  app.modes.register(rawMode)  // fallback
+  app.modes.register(rawMode)
 
   // 主题
   const theme = new ThemeManager()
@@ -40,6 +41,17 @@ async function main() {
 
   // 初始化主题
   theme.init(app.config || {})
+
+  // 注册命令
+  app.commands.registerBuiltin()
+
+  // 命令面板
+  const palette = createCommandPalette(app)
+
+  // 监听命令面板事件
+  app.events.on('command-palette', (options) => {
+    palette.show(options)
+  })
 
   // 统一工具栏
   setupToolbar(app)
@@ -83,19 +95,51 @@ async function main() {
       }
     })
   }
+
+  // 全局快捷键
+  document.addEventListener('keydown', (e) => {
+    // Ctrl+K — 命令面板
+    if (e.ctrlKey && e.key === 'k') {
+      e.preventDefault()
+      palette.toggle()
+    }
+    // Ctrl+Shift+P — 文件搜索
+    if (e.ctrlKey && e.shiftKey && e.key === 'P') {
+      e.preventDefault()
+      palette.show({ mode: 'file-search' })
+    }
+    // Ctrl+B — 切换侧边栏
+    if (e.ctrlKey && e.key === 'b') {
+      e.preventDefault()
+      app.commands.get('toggle-sidebar')?.execute()
+    }
+    // Ctrl+W — 关闭当前 Buffer
+    if (e.ctrlKey && e.key === 'w') {
+      e.preventDefault()
+      app.commands.get('close-buffer')?.execute()
+    }
+    // Escape — 关闭命令面板
+    if (e.key === 'Escape') {
+      palette.hide()
+    }
+  })
 }
 
 function setupToolbar(app: App) {
   const currentBuffer = document.getElementById('current-buffer')
   const bufferList = document.getElementById('buffer-list')
+  const modeToolbar = document.getElementById('mode-toolbar')
 
   const update = () => {
-    // 当前聚焦的 Buffer 名称
     if (currentBuffer) {
       currentBuffer.textContent = app.focusedPane?.buffer?.path || ''
     }
 
-    // Buffer 列表（显示所有 Buffer）
+    // 如果没有聚焦的 Buffer，清空 mode toolbar
+    if (modeToolbar && !app.focusedPane?.buffer) {
+      modeToolbar.innerHTML = ''
+    }
+
     if (bufferList) {
       bufferList.innerHTML = ''
       const buffers = Array.from(app.buffers.values())
@@ -108,7 +152,6 @@ function setupToolbar(app: App) {
         name.textContent = buf.path.split('/').pop() || buf.path
         name.title = buf.path
         name.onclick = () => {
-          // 找到显示该 Buffer 的 Pane 并聚焦
           const pane = app.rootPane.findPaneByBuffer(buf.path)
           if (pane) {
             app.focusedPane = pane
