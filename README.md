@@ -33,7 +33,7 @@ http://localhost:8000/.unipane/index.html
 **Buffer 为中心**：所有内容都是 Buffer，Pane 只是布局容器。
 
 ```
-[Mode 按钮] [当前文件名] ←→ [Buffer 列表 ×] [Aa] [◐]
+[Mode 按钮] [mode:path] ←→ [Buffer 列表 ×] [Aa] [◐]
 ┌─────────────────────────────────────────────────────┐
 │ SidePane (20%)  │ MainPane (80%)                    │
 │ 目录树          │ 文件内容                          │
@@ -88,6 +88,7 @@ npm run build
 - 树形目录视图（展开/折叠）
 - 隐藏文件切换（.* 按钮）
 - Markdown、HTML、图片渲染
+- Markdown 内链接导航（文件和目录）
 
 **编辑**
 - Markdown 编辑模式
@@ -98,9 +99,23 @@ npm run build
 - 拖拽调整分割比例
 - 聚焦切换（点击 Pane 更新工具栏）
 
+**交互**
+- 命令面板（Ctrl+K）
+- 文件搜索（Ctrl+Shift+P）
+
 **外观**
 - 明暗主题切换
 - CSS 主题（default/github/notion）
+
+## 快捷键
+
+| 快捷键 | 功能 |
+|--------|------|
+| `Ctrl+K` | 命令面板 |
+| `Ctrl+Shift+P` | 文件搜索 |
+| `Ctrl+B` | 切换侧边栏 |
+| `Ctrl+W` | 关闭当前 Buffer |
+| `Escape` | 关闭面板/对话框 |
 
 ## 配置
 
@@ -118,8 +133,10 @@ npm run build
 
 ## 文档
 
-- [设计文档](docs/DESIGN.md)
-- [架构详解](docs/design/architecture.md)
-- [Buffer Viewer 模型](docs/design/buffer-viewer.md)
-- [Mode 系统](docs/design/modes.md)
-- [路线图](docs/design/roadmap.md)
+- [设计文档](docs/DESIGN.md) — 总览
+- [设计原则](docs/design/principles.md) — 层级规则、操作边界
+- [架构详解](docs/design/architecture.md) — 模块职责、启动流程
+- [Buffer Viewer 模型](docs/design/buffer-viewer.md) — Pane / Buffer / Mode 设计哲学
+- [Mode 系统](docs/design/modes.md) — Mode 接口、内置 Mode、如何扩展
+- [Content/Mode 分离](docs/design/content-mode-separation.md) — 下一步架构规划
+- [路线图](docs/design/roadmap.md) — 已完成、计划
