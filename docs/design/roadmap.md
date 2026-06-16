@@ -38,8 +38,11 @@
 - [x] serve.py 静态文件服务
 - [x] 文件树 API（`/api/tree`）
 - [x] 文件读写 API
+- [x] 文件 stat API（`/api/stat`）
+- [x] 运行时 root 查询/切换 API（`/api/root`）
 - [x] `.unipane/config.json` 配置
 - [x] Root 自动检测
+- [x] Python 标准库单测覆盖路径安全、root 解析、stat
 
 ## 近期计划
 
@@ -75,6 +78,7 @@
 - [ ] 轻量模板系统 — 减少命令式 DOM 构建
 - [ ] 测试框架 — Mode.match、Pane.split 等核心函数单元测试
 - [x] 默认本机监听和路径越界安全修复
+- [x] Python runtime 保持标准库零第三方依赖
 
 ### 插件系统
 - [ ] 外部插件加载

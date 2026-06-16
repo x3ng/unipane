@@ -28,6 +28,15 @@ python3 /path/to/unipane/serve.py
 http://127.0.0.1:8000/index.html
 ```
 
+`serve.py` 支持指定 root 和端口：
+
+```bash
+python3 /path/to/unipane/serve.py                 # 自动从当前目录 .unipane/config.json 推导 root
+python3 /path/to/unipane/serve.py 8001            # 指定端口
+python3 /path/to/unipane/serve.py /path/to/notes  # 指定 root
+python3 /path/to/unipane/serve.py /path/to/notes 8001
+```
+
 ## 架构
 
 **Buffer 为中心，Resource 共享内容**：Resource 持有真实文件内容缓存；Buffer 绑定 Mode 并引用 Resource；Viewer 是 Buffer 的显示会话；Pane 是 Viewer 的布局容器。
@@ -81,6 +90,9 @@ unipane/
 # 类型检查
 npm run typecheck
 
+# TypeScript 类型检查 + Python 标准库单测
+npm test
+
 # 监听模式
 npm run watch
 
@@ -91,6 +103,8 @@ npm run build
 ## 安全边界
 
 `serve.py` 默认只监听 `127.0.0.1`，并限制浏览器跨源 API 访问到本机来源。它仍然拥有对配置根目录内文件的读写能力，只应在可信本机环境中运行。
+
+`serve.py` 使用 Python 标准库实现，不依赖第三方 Python 包。它提供文件树、读写、stat、运行时 root 查询/切换等本地 Runtime API。运行时切换 root 后，前端需要重新加载 config 和目录树。
 
 ## 功能
 

@@ -9,7 +9,7 @@ Unipane 是一个本地内容浏览器，采用 Resource / Buffer / Viewer / Pan
 | 概念 | 定义 |
 |------|------|
 | **Resource** | 真实内容资源（通常是文件路径）的共享缓存，负责 load/error/version |
-| **Pane** | 显示容器，可嵌套分割，每个叶子 Pane 显示一个 Buffer |
+| **Pane** | 显示容器，可嵌套分割，每个叶子 Pane 显示一个 Viewer |
 | **Buffer** | 内容语义实例（Resource + Mode + 状态），独立于显示 |
 | **Viewer** | Buffer 的一次显示会话，承载滚动、选择、光标、局部 UI 状态 |
 | **Mode** | 渲染处理器，接收 Buffer 渲染到 Pane |
@@ -21,7 +21,7 @@ src/
 ├── main.ts                 — 入口
 ├── core/
 │   ├── app.ts              — App 编排器
-│   ├── pane.ts             — Pane 类（分割、resize、显示 Buffer）
+│   ├── pane.ts             — Pane 类（分割、resize、显示 Viewer）
 │   ├── buffer.ts           — Buffer 类
 │   ├── viewer.ts           — Viewer 显示会话
 │   ├── resource.ts         — Resource / ResourceStore 共享内容层
@@ -38,6 +38,7 @@ src/
     ├── directory.ts        — 目录列表
     ├── html.ts             — HTML iframe
     ├── raw.ts              — 纯文本
+    ├── welcome.ts          — Welcome 虚拟 Buffer
     └── buffer-list.ts      — Buffer 列表
 ```
 

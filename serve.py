@@ -32,6 +32,114 @@ def safe_child(root: Path, path: str) -> Path | None:
     return target
 
 
+def relative_path(root: Path, target: Path) -> str:
+    """Return a slash-delimited relative path from root to target."""
+    return target.resolve().relative_to(root.resolve()).as_posix()
+
+
+def resolve_root(cwd: Path, root_arg: str | None = None) -> Path:
+    """Resolve the served content root from CLI args or .unipane/config.json."""
+    if root_arg:
+        return Path(root_arg).resolve()
+
+    local_config = cwd / '.unipane' / 'config.json'
+    if not local_config.exists():
+        return cwd.resolve()
+
+    try:
+        cfg = json.loads(local_config.read_text(encoding='utf-8'))
+        root_val = cfg.get('root')
+        if root_val:
+            return (local_config.parent / root_val).resolve()
+    except (json.JSONDecodeError, OSError):
+        pass
+
+    return cwd.resolve()
+
+
+def file_stat(root: Path, path: str) -> dict | None:
+    """Return JSON-serializable stat data for a file under root."""
+    target = safe_child(root, path)
+    if target is None:
+        return None
+
+    exists = target.exists()
+    result = {
+        'path': relative_path(root, target) if exists else path,
+        'exists': exists,
+    }
+    if not exists:
+        return result
+
+    stat = target.stat()
+    result.update({
+        'type': 'dir' if target.is_dir() else 'file',
+        'size': stat.st_size,
+        'mtime': stat.st_mtime,
+        'mtimeMs': int(stat.st_mtime * 1000),
+    })
+    return result
+
+
+def root_info(root: Path) -> dict:
+    """Return JSON-serializable runtime root information."""
+    config_path = root / '.unipane' / 'config.json'
+    return {
+        'root': str(root.resolve()),
+        'configPath': str(config_path),
+        'hasConfig': config_path.exists(),
+    }
+
+
+def resolve_new_root(current_root: Path, root_value: str) -> Path:
+    """Resolve a requested root change relative to the current root."""
+    candidate = Path(root_value).expanduser()
+    if not candidate.is_absolute():
+        candidate = current_root / candidate
+    candidate = candidate.resolve()
+    if not candidate.exists():
+        raise ValueError(f'Root does not exist: {candidate}')
+    if not candidate.is_dir():
+        raise ValueError(f'Root is not a directory: {candidate}')
+    return candidate
+
+
+def parse_args(args: list[str]) -> tuple[str | None, int, bool]:
+    """Parse CLI args as optional root and port.
+
+    Supported forms:
+      serve.py
+      serve.py 8001
+      serve.py /path/to/root
+      serve.py /path/to/root 8001
+    """
+    root_arg = None
+    port = 8000
+    explicit_port = False
+
+    if not args:
+        return root_arg, port, explicit_port
+    if len(args) > 2:
+        raise ValueError('Usage: serve.py [root] [port]')
+
+    if args[0].isdigit():
+        port = int(args[0])
+        explicit_port = True
+    else:
+        root_arg = args[0]
+
+    if len(args) == 2:
+        if not args[1].isdigit():
+            raise ValueError('Port must be a number')
+        port = int(args[1])
+        explicit_port = True
+
+    if not 1 <= port <= 65535:
+        raise ValueError('Port must be between 1 and 65535')
+
+    return root_arg, port, explicit_port
+
+
 def is_allowed_origin(origin: str | None, port: int | None = None) -> bool:
     """Allow browser API access only from the local Unipane server origin."""
     if not origin:
@@ -107,6 +215,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == '/api/tree':
             self._handle_tree(parsed.query)
+        elif parsed.path == '/api/stat':
+            self._handle_stat(parsed.query)
+        elif parsed.path == '/api/root':
+            self._handle_root_get()
         elif parsed.path == '/' or parsed.path == '/index.html':
             self._serve_engine('/index.html')
         elif parsed.path.startswith('/__unipane__/'):
@@ -121,6 +233,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == '/api/file':
             self._handle_write()
+        elif parsed.path == '/api/root':
+            self._handle_root_set()
         else:
             self.send_error(404)
 
@@ -186,10 +300,68 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         params = parse_qs(query)
         show_hidden = params.get('hidden', ['false'])[0].lower() == 'true'
         tree = scan_tree(ROOT, show_hidden=show_hidden)
-        data = json.dumps(tree, ensure_ascii=False).encode()
+        self._send_json(tree)
+
+    def _handle_stat(self, query: str = ''):
+        params = parse_qs(query)
+        paths = params.get('path', [])
+        if not paths:
+            self._send_json({'error': 'Missing path'}, status=400)
+            return
+
+        stats = []
+        for path in paths:
+            item = file_stat(ROOT, path)
+            if item is None:
+                self._send_json({'error': 'Path outside root'}, status=403)
+                return
+            stats.append(item)
+
+        self._send_json(stats[0] if len(stats) == 1 else stats)
+
+    def _handle_root_get(self):
+        self._send_json(root_info(ROOT))
+
+    def _handle_root_set(self):
+        global ROOT
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        root_value = body.get('root', '')
+        if not isinstance(root_value, str) or not root_value:
+            self._send_json({'error': 'root must be a non-empty string'}, status=400)
+            return
+
         try:
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
+            ROOT = resolve_new_root(ROOT, root_value)
+        except ValueError as exc:
+            self._send_json({'error': str(exc)}, status=400)
+            return
+
+        self.directory = str(ROOT)
+        self._send_json(root_info(ROOT))
+
+    def _read_json_body(self) -> dict | None:
+        length = int(self.headers.get('Content-Length', 0))
+        try:
+            body = json.loads(self.rfile.read(length) or b'{}')
+        except json.JSONDecodeError:
+            self._send_json({'error': 'Invalid JSON'}, status=400)
+            return None
+        if not isinstance(body, dict):
+            self._send_json({'error': 'JSON body must be an object'}, status=400)
+            return None
+        return body
+
+    def _send_json(self, value, status: int = 200):
+        data = json.dumps(value, ensure_ascii=False).encode()
+        self._send_bytes(data, 'application/json', status)
+
+    def _send_bytes(self, data: bytes, content_type: str, status: int = 200):
+        try:
+            self.send_response(status)
+            self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
             if self.command != 'HEAD':
@@ -198,26 +370,24 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             pass
 
     def _handle_write(self):
-        length = int(self.headers.get('Content-Length', 0))
-        body = json.loads(self.rfile.read(length))
+        body = self._read_json_body()
+        if body is None:
+            return
         path = body.get('path', '')
         content = body.get('content', '')
+        if not isinstance(path, str) or not isinstance(content, str):
+            self._send_json({'error': 'path and content must be strings'}, status=400)
+            return
 
         target = safe_child(ROOT, path)
         if target is None:
-            self.send_error(403, 'Path outside root')
+            self._send_json({'error': 'Path outside root'}, status=403)
             return
 
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding='utf-8')
 
-        try:
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(b'{"ok":true}')
-        except BrokenPipeError:
-            pass
+        self._send_json({'ok': True})
 
     def _handle_delete(self, query: str):
         params = parse_qs(query)
@@ -225,10 +395,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         target = safe_child(ROOT, path)
         if target is None:
-            self.send_error(403, 'Path outside root')
+            self._send_json({'error': 'Path outside root'}, status=403)
             return
         if not target.exists():
-            self.send_error(404, 'File not found')
+            self._send_json({'error': 'File not found'}, status=404)
             return
 
         if target.is_dir():
@@ -236,39 +406,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         else:
             target.unlink()
 
-        try:
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(b'{"ok":true}')
-        except BrokenPipeError:
-            pass
+        self._send_json({'ok': True})
 
 
 def main():
     global ROOT
-    port = 8000
-    explicit_port = False
+    try:
+        root_arg, port, explicit_port = parse_args(sys.argv[1:])
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(2)
 
-    args = sys.argv[1:]
-    if args:
-        root_arg = args[0]
-        if root_arg.isdigit():
-            port = int(root_arg)
-            explicit_port = True
-        else:
-            ROOT = Path(root_arg).resolve()
-    else:
-        # Auto-detect: check .unipane/config.json in current directory
-        local_config = Path.cwd() / '.unipane' / 'config.json'
-        if local_config.exists():
-            try:
-                cfg = json.loads(local_config.read_text(encoding='utf-8'))
-                root_val = cfg.get('root')
-                if root_val:
-                    ROOT = (local_config.parent / root_val).resolve()
-            except (json.JSONDecodeError, OSError):
-                pass
+    ROOT = resolve_root(Path.cwd(), root_arg)
 
     if not ROOT.exists():
         print(f"Error: root directory {ROOT} does not exist")

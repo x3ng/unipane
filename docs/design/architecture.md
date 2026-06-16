@@ -100,6 +100,21 @@ main.ts
 
 `.unipane/` 是用户项目控制目录，不承载 engine shell。
 
+### Runtime API
+
+当前 Python runtime 使用标准库实现以下 API：
+
+| API | 方法 | 说明 |
+|-----|------|------|
+| `/api/tree?hidden=true` | GET | 返回当前 root 的文件树 |
+| `/api/file` | POST | 写入 `{ path, content }` |
+| `/api/file?path=...` | DELETE | 删除文件或空目录 |
+| `/api/stat?path=...` | GET | 返回文件存在性、类型、大小、mtime |
+| `/api/root` | GET | 返回当前 root、配置路径、是否有配置 |
+| `/api/root` | POST | 切换当前 root，body 为 `{ root }` |
+
+`/api/root` 的相对路径按当前 root 解析；目标必须存在且是目录。前端切换 root 后应重新加载 config 和 tree。
+
 ## 数据流
 
 ```

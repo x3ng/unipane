@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "build": "npm run typecheck && esbuild src/main.ts --bundle --outfile=main.js --format=iife",
+    "test": "npm run typecheck && npm run test:py",
+    "test:py": "python3 -m unittest discover -s tests",
     "typecheck": "tsc --noEmit",
     "watch": "esbuild src/main.ts --bundle --outfile=main.js --format=iife --watch"
   },
