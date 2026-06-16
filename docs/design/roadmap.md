@@ -64,10 +64,11 @@
 ### 架构改进
 - [ ] **Content/Mode 分离** — Resource 持有内容，Buffer 绑定 Mode，Mode 只管渲染（详见 [content-mode-separation.md](content-mode-separation.md)）
   - [x] 阶段一：ResourceStore 添加共享内容层，Buffer 引用 Resource
-  - [ ] 阶段二：所有 fetch 逻辑移到 Buffer/Resource.load()
-  - [ ] 阶段三：Mode.canHandle + switchMode
-  - [ ] 阶段四：Viewer 承载 scroll/selection/cursor 等显示状态
-  - [ ] 阶段五：Mode 分层复用（mixin）
+  - [x] 阶段二：Pane 通过 Viewer 显示 Buffer，Welcome 收敛为 Virtual Buffer
+  - [ ] 阶段三：所有 fetch 逻辑移到 Buffer/Resource.load()
+  - [ ] 阶段四：Viewer 状态保存/恢复 scroll/selection/cursor
+  - [ ] 阶段五：Mode.canHandle + switchMode
+  - [ ] 阶段六：Mode 分层复用（mixin）
 - [ ] App 拆分为 App + BufferManager — 减少 god object 问题
 - [ ] EventBus 类型化 — 添加事件类型映射，编译时检查
 - [ ] Buffer.state 类型化 — 每个 Mode 定义自己的 state 接口

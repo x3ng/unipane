@@ -9,7 +9,7 @@
 | **Resource** | 真实内容资源（path + content + loading/error/version），由 ResourceStore 共享 |
 | **Pane** | 显示容器，可嵌套分割，每个叶子 Pane 显示一个 Buffer |
 | **Buffer** | 内容语义实例（Resource + Mode + 状态），独立于显示 |
-| **Viewer** | Buffer 在某个 Pane 中的显示会话，保存 scroll/selection/cursor 等局部状态（规划中） |
+| **Viewer** | Buffer 在某个 Pane 中的显示会话，保存 scroll/selection/cursor 等局部状态 |
 | **Mode** | 渲染处理器，接收 Buffer 渲染到 Pane |
 
 ## 模块职责
@@ -21,6 +21,7 @@
 | **App** | `app.ts` | 顶层编排器。持有 Pane、Buffer、ModeRegistry、EventBus。管理 Buffer 生命周期，跟踪聚焦 Pane |
 | **Pane** | `pane.ts` | 显示容器。递归结构：叶子节点显示 Buffer，分支节点分割为子 Pane。支持水平/垂直分割、拖拽 resize |
 | **Buffer** | `buffer.ts` | 内容语义实例。持有路径、绑定的 Mode、运行时状态，并引用共享 Resource |
+| **Viewer** | `viewer.ts` | 显示会话。必须绑定 Buffer，负责把 Buffer 交给 Mode 渲染，并保存局部显示状态 |
 | **Resource** | `resource.ts` | 共享内容层。按 path 缓存真实内容、加载状态、错误和 version；多个 Buffer 可共享 |
 | **ModeRegistry** | `mode-registry.ts` | Mode 注册表。按顺序匹配文件路径，返回对应 Mode |
 | **Router** | `router.ts` | URL hash 路由。解析 `#/file/<path>` → openFile，`#/dir/<path>` → directory mode |
@@ -84,13 +85,30 @@ main.ts
   → new Router(app).init()
 ```
 
+## HTTP 路由边界
+
+`serve.py` 同时服务 Unipane engine 和用户项目内容：
+
+| 路由 | 来源 | 说明 |
+|------|------|------|
+| `/` / `/index.html` | Unipane engine | 应用 HTML shell |
+| `/__unipane__/main.js` | Unipane engine | 构建后的前端代码 |
+| `/__unipane__/themes/*` | Unipane engine | 内置主题 |
+| `/.unipane/*` | 用户项目目录 | 项目配置、主页、自定义 CSS、assets |
+| `/api/*` | `serve.py` | 文件树、读写等 API |
+| `/<path>` | 用户项目目录 | 普通文件内容 |
+
+`.unipane/` 是用户项目控制目录，不承载 engine shell。
+
 ## 数据流
 
 ```
 用户点击文件 → openFile(path, pane)
   → ResourceStore.get(path)
   → Buffer 已存在？切换 : 创建新 Buffer(Resource + Mode)
-  → pane.showBuffer(buffer)
+  → new Viewer(buffer)
+  → pane.showViewer(viewer)
+  → viewer.render()
   → Mode.render(ctx)
   → 渲染到 pane.contentEl
   → emit('buffer-changed')
@@ -107,7 +125,7 @@ RootPane (horizontal)
 
 ## Content/Mode 分离
 
-当前已引入 Resource / ResourceStore 作为共享内容层，Markdown 和 Raw Mode 已开始通过 Buffer 加载文本内容。后续继续推进到：所有 Mode 不直接 fetch、Viewer 承载显示状态、同一路径可创建不同 Mode 的多个 Buffer 并共享 Resource。
+当前已引入 Resource / ResourceStore 作为共享内容层，Markdown 和 Raw Mode 已开始通过 Buffer 加载文本内容；Pane 已开始通过 Viewer 显示 Buffer。后续继续推进到：所有 Mode 不直接 fetch、Viewer 状态恢复、同一路径可创建不同 Mode 的多个 Buffer 并共享 Resource。
 
 详见 [content-mode-separation.md](content-mode-separation.md)。
 

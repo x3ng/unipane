@@ -3,6 +3,7 @@
 import type { Mode } from '../core/mode-registry'
 import type { ModeContext } from '../core/mode-registry'
 import { fileIcon } from '../core/util'
+import { isUserVisibleBuffer } from '../core/buffer'
 
 export const bufferListMode: Mode = {
   name: 'buffer-list',
@@ -19,7 +20,7 @@ export const bufferListMode: Mode = {
     title.textContent = 'Open Buffers'
     list.appendChild(title)
 
-    const buffers = Array.from(ctx.app.buffers.values())
+    const buffers = Array.from(ctx.app.buffers.values()).filter(isUserVisibleBuffer)
     if (buffers.length === 0) {
       const empty = document.createElement('div')
       empty.className = 'buffer-list-empty'

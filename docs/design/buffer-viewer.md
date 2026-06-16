@@ -69,9 +69,9 @@ Unipane Buffer：
 - 关闭 Pane 不销毁 Buffer 或 Resource
 - 同一文件可通过多个 Buffer/Mode 查看，但共享同一个 Resource 内容实例
 
-## Viewer 规划
+## Viewer
 
-当前实现中 Pane 仍直接显示 Buffer。下一步会引入 Viewer：
+Pane 不直接渲染 Buffer，而是显示 Viewer。Viewer 必须绑定 Buffer，不允许出现脱离 Buffer 的特殊显示路径：
 
 ```typescript
 interface Viewer {
@@ -87,6 +87,27 @@ interface Viewer {
 ```
 
 Viewer 只保存一次显示会话的局部状态，不拥有内容，也不覆盖 Buffer 的 Mode。
+
+## Virtual Buffer
+
+所有可显示内容都必须是 Buffer。文件内容使用 Resource Buffer；系统、临时、派生内容使用 Virtual Buffer。
+
+示例：
+
+| 内容 | Buffer | Mode |
+|------|--------|------|
+| 欢迎页 | `unipane://welcome` | `welcome` |
+| Loading | `unipane://loading` | `loading`（规划中） |
+| Error | `unipane://error/<id>` | `error`（规划中） |
+| 搜索结果 | `unipane://search?q=...` | `search-results`（规划中） |
+| 命令面板 | `unipane://commands` | `command-palette`（规划中） |
+
+约束：
+
+- Viewer 必须绑定 Buffer
+- Buffer 必须由 Mode 渲染
+- 特殊界面不绕过 Buffer/Mode 直接操作 Pane DOM
+- Virtual Buffer 不绑定 Resource，内容来自 Buffer.state 或 Mode 逻辑
 
 ## 扩展点
 

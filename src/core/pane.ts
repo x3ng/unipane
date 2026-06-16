@@ -1,5 +1,6 @@
-// Pane — display container, recursive split, shows one Buffer at a time
+// Pane — display container, recursive split, shows one Viewer at a time
 
+import type { Viewer } from './viewer'
 import type { Buffer } from './buffer'
 
 let paneId = 0
@@ -10,9 +11,9 @@ export class Pane {
   children: [Pane, Pane] | null = null
   direction: 'horizontal' | 'vertical' | null = null
   ratio: number = 1
-  buffer: Buffer | null = null
+  viewer: Viewer | null = null
   element: HTMLElement
-  contentEl: HTMLElement | null = null  // buffer 渲染容器
+  contentEl: HTMLElement | null = null  // viewer 渲染容器
   private _visible: boolean = true
   private _resizeHandle: HTMLElement | null = null  // 相邻的 resize handle
 
@@ -26,6 +27,10 @@ export class Pane {
 
   get isLeaf(): boolean {
     return this.children === null
+  }
+
+  get buffer(): Buffer | null {
+    return this.viewer?.buffer ?? null
   }
 
   get visible(): boolean {
@@ -79,8 +84,8 @@ export class Pane {
   split(dir: 'horizontal' | 'vertical', ratio: number = 0.5): [Pane, Pane] {
     if (!this.isLeaf) throw new Error('Cannot split a non-leaf pane')
 
-    const savedBuffer = this.buffer
-    this.buffer = null
+    const savedViewer = this.viewer
+    this.viewer = null
     this.contentEl = null
 
     const left = new Pane(this)
@@ -113,16 +118,17 @@ export class Pane {
 
     this.element.appendChild(right.element)
 
-    if (savedBuffer) {
-      left.showBuffer(savedBuffer, () => {})  // 需要 App 重新渲染
+    if (savedViewer) {
+      left.showViewer(savedViewer, () => {})  // 需要 App 重新渲染
     }
 
     return [left, right]
   }
 
-  /** 显示 Buffer，render 回调负责实际渲染 */
-  showBuffer(buffer: Buffer, render: (container: HTMLElement) => void): void {
-    this.buffer = buffer
+  /** 显示 Viewer，render 回调负责实际渲染 */
+  showViewer(viewer: Viewer, render: (container: HTMLElement) => void): void {
+    this.viewer = viewer
+    viewer.pane = this
     this.element.innerHTML = ''
     this.element.className = 'pane'
 
@@ -134,9 +140,10 @@ export class Pane {
     render(container)
   }
 
-  /** 清除 Buffer，显示空白 */
-  clearBuffer(): void {
-    this.buffer = null
+  /** 清除 Viewer，显示空白 */
+  clearViewer(): void {
+    if (this.viewer?.pane === this) this.viewer.pane = null
+    this.viewer = null
     this.element.innerHTML = ''
     this.element.className = 'pane'
     this.contentEl = null

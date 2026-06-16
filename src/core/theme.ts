@@ -4,6 +4,7 @@ import { Config } from './types'
 import { bust } from './api'
 
 const THEMES = ['default', 'github', 'notion']
+const ENGINE_THEME_BASE = '/__unipane__/themes/'
 
 export class ThemeManager {
   private currentCss: string
@@ -16,13 +17,13 @@ export class ThemeManager {
 
   init(config: Config) {
     // Load default.css as base
-    const existingBase = document.querySelector<HTMLLinkElement>('link[href*="/.unipane/themes/default.css"]')
+    const existingBase = document.querySelector<HTMLLinkElement>(`link[href*="${ENGINE_THEME_BASE}default.css"]`)
     if (existingBase) {
       this.baseLink = existingBase
     } else {
       this.baseLink = document.createElement('link')
       this.baseLink.rel = 'stylesheet'
-      this.baseLink.href = bust('/.unipane/themes/default.css')
+      this.baseLink.href = bust(ENGINE_THEME_BASE + 'default.css')
       document.head.appendChild(this.baseLink)
     }
 
@@ -81,7 +82,7 @@ export class ThemeManager {
     if (name && name !== 'default') {
       this.themeLink = document.createElement('link')
       this.themeLink.rel = 'stylesheet'
-      this.themeLink.href = bust('/.unipane/themes/' + name + '.css')
+      this.themeLink.href = bust(ENGINE_THEME_BASE + name + '.css')
       document.head.appendChild(this.themeLink)
     }
   }

@@ -98,15 +98,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        self._handle_get()
+
+    def do_HEAD(self):
+        self._handle_get()
+
+    def _handle_get(self):
         parsed = urlparse(self.path)
         if parsed.path == '/api/tree':
             self._handle_tree(parsed.query)
-        elif parsed.path.startswith('/.unipane/'):
-            # config.json from user data, everything else from engine
-            if parsed.path == '/.unipane/config.json':
-                self._serve_file(ROOT / '.unipane' / 'config.json')
-            else:
-                self._serve_engine(parsed.path)
+        elif parsed.path == '/' or parsed.path == '/index.html':
+            self._serve_engine('/index.html')
+        elif parsed.path.startswith('/__unipane__/'):
+            self._serve_engine(parsed.path)
         else:
             super().do_GET()
 
@@ -142,13 +146,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
-            self.wfile.write(data)
+            if self.command != 'HEAD':
+                self.wfile.write(data)
         except BrokenPipeError:
             pass
 
     def _serve_engine(self, path: str):
         """Serve engine files (index.html, main.js, themes/) from the project directory."""
-        rel = path[len('/.unipane/'):]  # Strip prefix
+        if path.startswith('/__unipane__/'):
+            rel = path[len('/__unipane__/'):]
+        else:
+            rel = path.lstrip('/')
         if not rel or rel == '/':
             rel = 'index.html'
         target = (ENGINE / rel).resolve()
@@ -169,7 +177,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
-            self.wfile.write(data)
+            if self.command != 'HEAD':
+                self.wfile.write(data)
         except BrokenPipeError:
             pass
 
@@ -183,7 +192,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
-            self.wfile.write(data)
+            if self.command != 'HEAD':
+                self.wfile.write(data)
         except BrokenPipeError:
             pass
 
@@ -295,7 +305,7 @@ def main():
     print(f"Serving {ROOT} at http://{HOST}:{selected_port}")
     if has_config:
         print(f"Config: {config_path}")
-    print(f"Open http://{HOST}:{selected_port}/.unipane/index.html in browser")
+    print(f"Open http://{HOST}:{selected_port}/index.html in browser")
 
     try:
         server.serve_forever()

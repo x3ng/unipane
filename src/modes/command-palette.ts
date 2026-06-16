@@ -6,6 +6,7 @@ import type { App } from '../core/app'
 import type { Buffer } from '../core/buffer'
 import type { Command } from '../core/commands'
 import { fileIcon } from '../core/util'
+import { isUserVisibleBuffer } from '../core/buffer'
 
 export interface PaletteOptions {
   mode: 'command' | 'file-search' | 'buffer-list'
@@ -164,7 +165,7 @@ export function createCommandPalette(app: App): {
   }
 
   function getBufferItems(filter: string): PaletteItem[] {
-    const buffers = Array.from(app.buffers.values())
+    const buffers = Array.from(app.buffers.values()).filter(isUserVisibleBuffer)
     return buffers
       .filter(buf => buf.path.toLowerCase().includes(filter))
       .map(buf => ({

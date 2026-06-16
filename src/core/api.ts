@@ -7,7 +7,7 @@ const bust = (url: string): string =>
   url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now()
 
 export async function fetchConfig(): Promise<Config> {
-  const resp = await fetch(bust('./config.json'))
+  const resp = await fetch(bust('/.unipane/config.json'))
   if (!resp.ok) throw new Error('Failed to load config.json')
   return resp.json()
 }

@@ -3,6 +3,7 @@
 import { App } from './core/app'
 import { Router } from './core/router'
 import { ThemeManager } from './core/theme'
+import { isUserVisibleBuffer } from './core/buffer'
 import { createCommandPalette } from './modes/command-palette'
 
 // Modes
@@ -12,6 +13,7 @@ import { htmlMode } from './modes/html'
 import { rawMode } from './modes/raw'
 import { directoryMode } from './modes/directory'
 import { bufferListMode } from './modes/buffer-list'
+import { welcomeMode } from './modes/welcome'
 
 async function main() {
   const app = new App()
@@ -22,6 +24,7 @@ async function main() {
   app.modes.register(htmlMode)
   app.modes.register(markdownMode)
   app.modes.register(bufferListMode)
+  app.modes.register(welcomeMode)
   app.modes.register(rawMode)
 
   // 主题
@@ -164,7 +167,7 @@ function setupToolbar(app: App) {
 
     if (bufferList) {
       bufferList.innerHTML = ''
-      const buffers = Array.from(app.buffers.values())
+      const buffers = Array.from(app.buffers.values()).filter(isUserVisibleBuffer)
       buffers.forEach(buf => {
         const tag = document.createElement('span')
         tag.className = 'buffer-tag' + (buf === app.focusedPane?.buffer ? ' active' : '')

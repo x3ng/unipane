@@ -8,9 +8,9 @@
       this.children = null;
       this.direction = null;
       this.ratio = 1;
-      this.buffer = null;
+      this.viewer = null;
       this.contentEl = null;
-      // buffer 渲染容器
+      // viewer 渲染容器
       this._visible = true;
       this._resizeHandle = null;
       this.id = `pane-${++paneId}`;
@@ -21,6 +21,9 @@
     }
     get isLeaf() {
       return this.children === null;
+    }
+    get buffer() {
+      return this.viewer?.buffer ?? null;
     }
     get visible() {
       return this._visible;
@@ -63,8 +66,8 @@
     split(dir, ratio = 0.5) {
       if (!this.isLeaf)
         throw new Error("Cannot split a non-leaf pane");
-      const savedBuffer = this.buffer;
-      this.buffer = null;
+      const savedViewer = this.viewer;
+      this.viewer = null;
       this.contentEl = null;
       const left = new _Pane(this);
       const right = new _Pane(this);
@@ -87,15 +90,16 @@
       left.setResizeHandle(handle);
       right.setResizeHandle(handle);
       this.element.appendChild(right.element);
-      if (savedBuffer) {
-        left.showBuffer(savedBuffer, () => {
+      if (savedViewer) {
+        left.showViewer(savedViewer, () => {
         });
       }
       return [left, right];
     }
-    /** 显示 Buffer，render 回调负责实际渲染 */
-    showBuffer(buffer, render) {
-      this.buffer = buffer;
+    /** 显示 Viewer，render 回调负责实际渲染 */
+    showViewer(viewer, render) {
+      this.viewer = viewer;
+      viewer.pane = this;
       this.element.innerHTML = "";
       this.element.className = "pane";
       const container = document.createElement("div");
@@ -104,9 +108,11 @@
       this.element.appendChild(container);
       render(container);
     }
-    /** 清除 Buffer，显示空白 */
-    clearBuffer() {
-      this.buffer = null;
+    /** 清除 Viewer，显示空白 */
+    clearViewer() {
+      if (this.viewer?.pane === this)
+        this.viewer.pane = null;
+      this.viewer = null;
       this.element.innerHTML = "";
       this.element.className = "pane";
       this.contentEl = null;
@@ -202,23 +208,32 @@
     constructor(path, mode, resource) {
       this.state = {};
       this.id = path;
+      this.kind = resource ? "resource" : "virtual";
       this.path = path;
       this.mode = mode;
       this.resource = resource;
     }
     get content() {
-      return this.resource.content;
+      return this.resource?.content ?? null;
     }
     get version() {
-      return this.resource.version;
+      return this.resource?.version ?? 0;
     }
     loadText(force = false) {
+      if (!this.resource) {
+        return Promise.reject(new Error(`Buffer ${this.id} has no resource content`));
+      }
       return this.resource.loadText(force);
     }
     setText(content) {
+      if (!this.resource)
+        return;
       this.resource.setText(content);
     }
   };
+  function isUserVisibleBuffer(buffer) {
+    return buffer.kind !== "virtual";
+  }
 
   // src/core/mode-registry.ts
   var ModeRegistry = class {
@@ -382,7 +397,7 @@
   // src/core/api.ts
   var bust = (url) => url + (url.includes("?") ? "&" : "?") + "_t=" + Date.now();
   async function fetchConfig() {
-    const resp = await fetch(bust("./config.json"));
+    const resp = await fetch(bust("/.unipane/config.json"));
     if (!resp.ok)
       throw new Error("Failed to load config.json");
     return resp.json();
@@ -472,6 +487,32 @@
     }
   };
 
+  // src/core/viewer.ts
+  var viewerId = 0;
+  var Viewer = class {
+    constructor(buffer) {
+      this.pane = null;
+      this.state = {};
+      this.id = `viewer-${++viewerId}`;
+      this.buffer = buffer;
+    }
+    render(app, container, pane) {
+      this.pane = pane;
+      const ctx = {
+        buffer: this.buffer,
+        viewer: this,
+        pane,
+        container,
+        openFile: (path) => app.openFile(path, pane),
+        saveFile: async (path, content) => {
+          await app.saveFileContent(path, content);
+        },
+        app
+      };
+      this.buffer.mode.render(ctx);
+    }
+  };
+
   // src/core/app.ts
   var App = class {
     // 主内容 Pane
@@ -555,9 +596,9 @@
       const buffer = this.getBuffer(path) || this.createBuffer(path, modeName);
       if (!buffer)
         return;
-      pane.showBuffer(buffer, (container) => {
-        const ctx = this.makeModeContext(container, buffer, pane);
-        buffer.mode.render(ctx);
+      const viewer = new Viewer(buffer);
+      pane.showViewer(viewer, (container) => {
+        viewer.render(this, container, pane);
       });
       this.focusedPane = pane;
       this.events.emit("focus-changed", pane);
@@ -580,10 +621,14 @@
       const mode = modeName ? this.modes.findModeByName(modeName) : this.modes.findMode(path);
       if (!mode)
         return null;
-      const buffer = new Buffer(path, mode, this.resources.get(path));
+      const resource = this.isVirtualPath(path) ? null : this.resources.get(path);
+      const buffer = new Buffer(path, mode, resource);
       this.buffers.set(path, buffer);
       this.events.emit("buffer-created", buffer);
       return buffer;
+    }
+    isVirtualPath(path) {
+      return path.startsWith("unipane://");
     }
     closeBuffer(path) {
       const buffer = this.buffers.get(path);
@@ -595,7 +640,7 @@
           if (leaf !== this.mainPane) {
             leaf.hide();
           }
-          leaf.clearBuffer();
+          leaf.clearViewer();
         }
       }
       if (wasFocused) {
@@ -604,24 +649,8 @@
       this.buffers.delete(path);
       this.events.emit("buffer-closed", buffer);
       if (this.mainPane && !this.mainPane.buffer) {
-        this.showWelcome();
+        this.renderPane(this.mainPane, "unipane://welcome", "welcome");
       }
-    }
-    /** 显示欢迎/命令面板 fallback */
-    showWelcome() {
-      if (!this.mainPane)
-        return;
-      this.mainPane.element.innerHTML = "";
-      this.mainPane.buffer = null;
-      const container = document.createElement("div");
-      container.className = "welcome-fallback";
-      const title = document.createElement("h2");
-      title.textContent = "Unipane";
-      const hint = document.createElement("p");
-      hint.textContent = "\u6309 Ctrl+K \u6253\u5F00\u547D\u4EE4\u9762\u677F\uFF0CCtrl+Shift+P \u641C\u7D22\u6587\u4EF6";
-      container.appendChild(title);
-      container.appendChild(hint);
-      this.mainPane.element.appendChild(container);
     }
     /** 保存 Buffer 内容并退出编辑模式 */
     async saveFileFromBuffer(buffer, content) {
@@ -643,22 +672,13 @@
       if (focused)
         this.events.emit("focus-changed", focused);
     }
-    makeModeContext(container, buffer, pane) {
-      return {
-        buffer,
-        pane,
-        container,
-        openFile: (path) => this.openFile(path, pane),
-        saveFile: async (path, content) => {
-          await saveFile(path, content);
-          const target = this.getBuffer(path);
-          if (target) {
-            target.setText(content);
-            target.state.rawContent = content;
-          }
-        },
-        app: this
-      };
+    async saveFileContent(path, content) {
+      await saveFile(path, content);
+      const target = this.getBuffer(path);
+      if (target) {
+        target.setText(content);
+        target.state.rawContent = content;
+      }
     }
   };
 
@@ -699,6 +719,7 @@
 
   // src/core/theme.ts
   var THEMES = ["default", "github", "notion"];
+  var ENGINE_THEME_BASE = "/__unipane__/themes/";
   var ThemeManager = class {
     constructor() {
       this.themeLink = null;
@@ -706,13 +727,13 @@
       this.currentCss = localStorage.getItem("unipane-css") || "default";
     }
     init(config) {
-      const existingBase = document.querySelector('link[href*="/.unipane/themes/default.css"]');
+      const existingBase = document.querySelector(`link[href*="${ENGINE_THEME_BASE}default.css"]`);
       if (existingBase) {
         this.baseLink = existingBase;
       } else {
         this.baseLink = document.createElement("link");
         this.baseLink.rel = "stylesheet";
-        this.baseLink.href = bust("/.unipane/themes/default.css");
+        this.baseLink.href = bust(ENGINE_THEME_BASE + "default.css");
         document.head.appendChild(this.baseLink);
       }
       const saved = localStorage.getItem("unipane-css");
@@ -761,7 +782,7 @@
       if (name && name !== "default") {
         this.themeLink = document.createElement("link");
         this.themeLink.rel = "stylesheet";
-        this.themeLink.href = bust("/.unipane/themes/" + name + ".css");
+        this.themeLink.href = bust(ENGINE_THEME_BASE + name + ".css");
         document.head.appendChild(this.themeLink);
       }
     }
@@ -892,7 +913,7 @@
       return files.slice(0, 50);
     }
     function getBufferItems(filter) {
-      const buffers = Array.from(app.buffers.values());
+      const buffers = Array.from(app.buffers.values()).filter(isUserVisibleBuffer);
       return buffers.filter((buf) => buf.path.toLowerCase().includes(filter)).map((buf) => ({
         name: buf.path.split("/").pop() || buf.path,
         meta: buf.path,
@@ -1252,7 +1273,7 @@
       const title = document.createElement("h3");
       title.textContent = "Open Buffers";
       list.appendChild(title);
-      const buffers = Array.from(ctx.app.buffers.values());
+      const buffers = Array.from(ctx.app.buffers.values()).filter(isUserVisibleBuffer);
       if (buffers.length === 0) {
         const empty = document.createElement("div");
         empty.className = "buffer-list-empty";
@@ -1282,6 +1303,25 @@
     }
   };
 
+  // src/modes/welcome.ts
+  var welcomeMode = {
+    name: "welcome",
+    match(path) {
+      return path === "unipane://welcome";
+    },
+    render(ctx) {
+      const container = document.createElement("div");
+      container.className = "welcome-fallback";
+      const title = document.createElement("h2");
+      title.textContent = "Unipane";
+      const hint = document.createElement("p");
+      hint.textContent = "\u6309 Ctrl+K \u6253\u5F00\u547D\u4EE4\u9762\u677F\uFF0CCtrl+Shift+P \u641C\u7D22\u6587\u4EF6";
+      container.appendChild(title);
+      container.appendChild(hint);
+      ctx.container.appendChild(container);
+    }
+  };
+
   // src/main.ts
   async function main() {
     const app = new App();
@@ -1290,6 +1330,7 @@
     app.modes.register(htmlMode);
     app.modes.register(markdownMode);
     app.modes.register(bufferListMode);
+    app.modes.register(welcomeMode);
     app.modes.register(rawMode);
     const theme = new ThemeManager();
     try {
@@ -1395,7 +1436,7 @@
       }
       if (bufferList) {
         bufferList.innerHTML = "";
-        const buffers = Array.from(app.buffers.values());
+        const buffers = Array.from(app.buffers.values()).filter(isUserVisibleBuffer);
         buffers.forEach((buf) => {
           const tag = document.createElement("span");
           tag.className = "buffer-tag" + (buf === app.focusedPane?.buffer ? " active" : "");

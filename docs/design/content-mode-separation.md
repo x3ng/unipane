@@ -1,6 +1,6 @@
 # Content / Mode 分离设计
 
-> 状态：阶段一已开始。已引入 Resource / ResourceStore 共享内容层，Markdown 和 Raw Mode 已通过 Buffer 加载文本内容；完整 Viewer 和全 Mode 迁移仍在规划中。
+> 状态：阶段二已开始。已引入 Resource / ResourceStore 共享内容层，Markdown 和 Raw Mode 已通过 Buffer 加载文本内容；Pane 已开始通过 Viewer 显示 Buffer。全 Mode 迁移、Viewer 状态恢复和同路径多 Buffer 仍在规划中。
 
 ## 问题
 
@@ -86,6 +86,8 @@ class Viewer {
 }
 ```
 
+Viewer 必须绑定 Buffer。Welcome、Loading、Error、Search Results 等系统界面使用 Virtual Buffer，而不是不绑定 Buffer 的特殊 Viewer。
+
 ### Mode 接口改造
 
 ```typescript
@@ -110,7 +112,7 @@ interface Mode {
 ```typescript
 interface ModeContext {
   buffer: Buffer              // 通过 buffer.resource.content 拿数据
-  viewer?: Viewer             // 规划中：显示会话状态
+  viewer: Viewer              // 显示会话状态
   pane: Pane
   container: HTMLElement
   openFile: (path: string) => void
@@ -301,9 +303,10 @@ switchMode(buffer: Buffer, modeName: string): void {
 ### 阶段三：Viewer 和 Mode 切换
 
 1. 引入 Viewer，保存 scroll/cursor/selection
-2. 同一路径允许多个 Buffer 绑定不同 Mode，共享 Resource
-3. Mode 接口添加 `canHandle`
-4. 链接导航使用新的 findMode 逻辑
+2. Viewer 状态保存/恢复 scroll/cursor/selection
+3. 同一路径允许多个 Buffer 绑定不同 Mode，共享 Resource
+4. Mode 接口添加 `canHandle`
+5. 链接导航使用新的 findMode 逻辑
 
 ### 阶段四：Mode 分层复用
 

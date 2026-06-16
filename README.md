@@ -25,12 +25,12 @@ EOF
 python3 /path/to/unipane/serve.py
 
 # 5. 浏览器打开
-http://127.0.0.1:8000/.unipane/index.html
+http://127.0.0.1:8000/index.html
 ```
 
 ## 架构
 
-**Buffer 为中心，Resource 共享内容**：Resource 持有真实文件内容缓存；Buffer 绑定 Mode 并引用 Resource；Pane 是布局容器，后续 Viewer 负责同一 Buffer 的不同显示位置和局部状态。
+**Buffer 为中心，Resource 共享内容**：Resource 持有真实文件内容缓存；Buffer 绑定 Mode 并引用 Resource；Viewer 是 Buffer 的显示会话；Pane 是 Viewer 的布局容器。
 
 ```
 [Mode 按钮] [mode:path] ←→ [Buffer 列表 ×] [Aa] [◐]
@@ -51,6 +51,7 @@ unipane/
 │   │   ├── app.ts              App 编排器
 │   │   ├── pane.ts             Pane 分割和 resize
 │   │   ├── buffer.ts           Buffer 类
+│   │   ├── viewer.ts           Viewer 显示会话
 │   │   ├── resource.ts         Resource / ResourceStore 共享内容层
 │   │   ├── mode-registry.ts    Mode 注册表
 │   │   ├── router.ts           URL hash 路由
@@ -65,6 +66,7 @@ unipane/
 │       ├── image.ts            图片显示
 │       ├── html.ts             HTML iframe
 │       ├── raw.ts              纯文本兜底
+│       ├── welcome.ts          Welcome 虚拟 Buffer
 │       └── buffer-list.ts      Buffer 列表
 ├── main.js                     构建产物
 ├── index.html                  HTML shell
@@ -127,7 +129,7 @@ npm run build
 
 ## 配置
 
-`.unipane/config.json`：
+项目目录的 `.unipane/config.json`：
 
 ```json
 {
@@ -138,6 +140,8 @@ npm run build
   "css": "my-style.css"
 }
 ```
+
+`.unipane/` 是用户项目控制目录，可放配置、自定义 CSS、主页和 assets。Unipane 内置运行资源由 server 暴露在 `/__unipane__/`，不会占用用户项目的 `.unipane/`。
 
 ## 文档
 

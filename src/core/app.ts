@@ -7,8 +7,8 @@ import { EventBus } from './events'
 import { CommandRegistry } from './commands'
 import { fetchTree, fetchConfig, saveFile } from './api'
 import { ResourceStore } from './resource'
+import { Viewer } from './viewer'
 import type { Config, TreeItem } from './types'
-import type { ModeContext } from './mode-registry'
 
 export class App {
   rootPane: Pane
@@ -115,9 +115,9 @@ export class App {
     const buffer = this.getBuffer(path) || this.createBuffer(path, modeName)
     if (!buffer) return
 
-    pane.showBuffer(buffer, (container) => {
-      const ctx = this.makeModeContext(container, buffer, pane)
-      buffer.mode.render(ctx)
+    const viewer = new Viewer(buffer)
+    pane.showViewer(viewer, (container) => {
+      viewer.render(this, container, pane)
     })
 
     // 更新聚焦
@@ -149,10 +149,15 @@ export class App {
       : this.modes.findMode(path)
     if (!mode) return null
 
-    const buffer = new Buffer(path, mode, this.resources.get(path))
+    const resource = this.isVirtualPath(path) ? null : this.resources.get(path)
+    const buffer = new Buffer(path, mode, resource)
     this.buffers.set(path, buffer)
     this.events.emit('buffer-created', buffer)
     return buffer
+  }
+
+  private isVirtualPath(path: string): boolean {
+    return path.startsWith('unipane://')
   }
 
   closeBuffer(path: string): void {
@@ -168,7 +173,7 @@ export class App {
         if (leaf !== this.mainPane) {
           leaf.hide()
         }
-        leaf.clearBuffer()
+        leaf.clearViewer()
       }
     }
 
@@ -180,30 +185,10 @@ export class App {
     this.buffers.delete(path)
     this.events.emit('buffer-closed', buffer)
 
-    // 如果主 Pane 为空，显示命令面板 fallback
+    // 如果主 Pane 为空，显示 welcome virtual buffer fallback
     if (this.mainPane && !this.mainPane.buffer) {
-      this.showWelcome()
+      this.renderPane(this.mainPane, 'unipane://welcome', 'welcome')
     }
-  }
-
-  /** 显示欢迎/命令面板 fallback */
-  showWelcome(): void {
-    if (!this.mainPane) return
-    this.mainPane.element.innerHTML = ''
-    this.mainPane.buffer = null
-
-    const container = document.createElement('div')
-    container.className = 'welcome-fallback'
-
-    const title = document.createElement('h2')
-    title.textContent = 'Unipane'
-
-    const hint = document.createElement('p')
-    hint.textContent = '按 Ctrl+K 打开命令面板，Ctrl+Shift+P 搜索文件'
-
-    container.appendChild(title)
-    container.appendChild(hint)
-    this.mainPane.element.appendChild(container)
   }
 
   /** 保存 Buffer 内容并退出编辑模式 */
@@ -227,21 +212,12 @@ export class App {
     if (focused) this.events.emit('focus-changed', focused)
   }
 
-  makeModeContext(container: HTMLElement, buffer: Buffer, pane: Pane): ModeContext {
-    return {
-      buffer,
-      pane,
-      container,
-      openFile: (path: string) => this.openFile(path, pane),
-      saveFile: async (path: string, content: string) => {
-        await saveFile(path, content)
-        const target = this.getBuffer(path)
-        if (target) {
-          target.setText(content)
-          target.state.rawContent = content
-        }
-      },
-      app: this,
+  async saveFileContent(path: string, content: string): Promise<void> {
+    await saveFile(path, content)
+    const target = this.getBuffer(path)
+    if (target) {
+      target.setText(content)
+      target.state.rawContent = content
     }
   }
 }

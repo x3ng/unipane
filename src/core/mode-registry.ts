@@ -4,9 +4,11 @@
 import type { Buffer } from './buffer'
 import type { Pane } from './pane'
 import type { App } from './app'
+import type { Viewer } from './viewer'
 
 export interface ModeContext {
   buffer: Buffer
+  viewer: Viewer
   pane: Pane
   container: HTMLElement
   openFile(path: string): void
