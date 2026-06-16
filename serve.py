@@ -3,7 +3,7 @@
 
 import http.server
 import json
-import os
+import errno
 import sys
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -11,6 +11,39 @@ from urllib.parse import urlparse, parse_qs
 ROOT = Path.cwd()
 ENGINE = Path(__file__).parent  # Where serve.py / index.html / main.js live
 EXCLUDE = {'.unipane', '.git', '__pycache__', 'node_modules'}
+HOST = '127.0.0.1'
+PORT_RETRIES = 20
+
+
+def is_relative_to(path: Path, root: Path) -> bool:
+    """Return True when path is inside root after resolving symlinks."""
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def safe_child(root: Path, path: str) -> Path | None:
+    """Resolve a user path under root, rejecting traversal outside root."""
+    target = (root / path).resolve()
+    if not is_relative_to(target, root):
+        return None
+    return target
+
+
+def is_allowed_origin(origin: str | None, port: int | None = None) -> bool:
+    """Allow browser API access only from the local Unipane server origin."""
+    if not origin:
+        return True
+    parsed = urlparse(origin)
+    if parsed.scheme not in {'http', 'https'}:
+        return False
+    if parsed.hostname not in {'localhost', '127.0.0.1', '::1'}:
+        return False
+    if port is not None and parsed.port not in {None, port}:
+        return False
+    return True
 
 
 def scan_tree(root: Path, prefix: str = '', show_hidden: bool = False) -> list:
@@ -48,13 +81,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def end_headers(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        origin = self.headers.get('Origin')
+        if is_allowed_origin(origin, self.server.server_port) and origin:
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Vary', 'Origin')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
         super().end_headers()
 
     def do_OPTIONS(self):
+        if not is_allowed_origin(self.headers.get('Origin'), self.server.server_port):
+            self.send_error(403, 'Origin not allowed')
+            return
         self.send_response(200)
         self.end_headers()
 
@@ -72,6 +111,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_POST(self):
+        if not is_allowed_origin(self.headers.get('Origin'), self.server.server_port):
+            self.send_error(403, 'Origin not allowed')
+            return
         parsed = urlparse(self.path)
         if parsed.path == '/api/file':
             self._handle_write()
@@ -79,6 +121,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(404)
 
     def do_DELETE(self):
+        if not is_allowed_origin(self.headers.get('Origin'), self.server.server_port):
+            self.send_error(403, 'Origin not allowed')
+            return
         parsed = urlparse(self.path)
         if parsed.path == '/api/file':
             self._handle_delete(parsed.query)
@@ -107,7 +152,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not rel or rel == '/':
             rel = 'index.html'
         target = (ENGINE / rel).resolve()
-        if not str(target).startswith(str(ENGINE.resolve())) or not target.exists():
+        if not is_relative_to(target, ENGINE) or not target.exists():
             self.send_error(404)
             return
 
@@ -148,8 +193,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         path = body.get('path', '')
         content = body.get('content', '')
 
-        target = (ROOT / path).resolve()
-        if not str(target).startswith(str(ROOT.resolve())):
+        target = safe_child(ROOT, path)
+        if target is None:
             self.send_error(403, 'Path outside root')
             return
 
@@ -168,8 +213,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         params = parse_qs(query)
         path = params.get('path', [''])[0]
 
-        target = (ROOT / path).resolve()
-        if not str(target).startswith(str(ROOT.resolve())):
+        target = safe_child(ROOT, path)
+        if target is None:
             self.send_error(403, 'Path outside root')
             return
         if not target.exists():
@@ -193,12 +238,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 def main():
     global ROOT
     port = 8000
+    explicit_port = False
 
     args = sys.argv[1:]
     if args:
         root_arg = args[0]
         if root_arg.isdigit():
             port = int(root_arg)
+            explicit_port = True
         else:
             ROOT = Path(root_arg).resolve()
     else:
@@ -220,15 +267,36 @@ def main():
     config_path = ROOT / '.unipane' / 'config.json'
     has_config = config_path.exists()
 
-    print(f"Serving {ROOT} at http://localhost:{port}")
-    if has_config:
-        print(f"Config: {config_path}")
-    print(f"Open http://localhost:{port}/.unipane/index.html in browser")
-
     class ReusableHTTPServer(http.server.HTTPServer):
         allow_reuse_address = True
 
-    server = ReusableHTTPServer(('', port), Handler)
+    server = None
+    selected_port = port
+    for candidate in range(port, port + (1 if explicit_port else PORT_RETRIES)):
+        try:
+            server = ReusableHTTPServer((HOST, candidate), Handler)
+            selected_port = candidate
+            break
+        except OSError as exc:
+            if exc.errno != errno.EADDRINUSE:
+                raise
+            if explicit_port:
+                print(f"Error: http://{HOST}:{candidate} is already in use")
+                print("Choose another port, for example: python3 serve.py 8001")
+                sys.exit(1)
+
+    if server is None:
+        end_port = port + PORT_RETRIES - 1
+        print(f"Error: no free port found in {HOST}:{port}-{end_port}")
+        sys.exit(1)
+
+    if selected_port != port:
+        print(f"Port {port} is in use; using {selected_port} instead.")
+    print(f"Serving {ROOT} at http://{HOST}:{selected_port}")
+    if has_config:
+        print(f"Config: {config_path}")
+    print(f"Open http://{HOST}:{selected_port}/.unipane/index.html in browser")
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:

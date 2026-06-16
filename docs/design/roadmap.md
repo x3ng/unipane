@@ -4,7 +4,8 @@
 
 ### 基础架构
 - [x] TypeScript 模块化重构
-- [x] Pane / Buffer / Mode 三层架构
+- [x] Pane / Buffer / Mode 基础架构
+- [x] Resource / ResourceStore 共享内容层（阶段一）
 - [x] Buffer 为中心的设计
 - [x] esbuild 打包（IIFE 格式）
 - [x] hash 路由（`#/file/<path>`）
@@ -53,23 +54,26 @@
 - [ ] 布局保存/恢复
 
 ### 交互增强
-- [ ] 键盘快捷键
+- [x] 键盘快捷键
+- [x] 输入框/编辑器快捷键保护
 - [ ] 拖拽文件到 Pane
 - [ ] 右键菜单
 
 ## 长期方向
 
 ### 架构改进
-- [ ] **Content/Mode 分离** — Buffer 持有内容，Mode 只管渲染（详见 [content-mode-separation.md](content-mode-separation.md)）
-  - [ ] 阶段一：Buffer 添加 content 字段，Mode fetch 后写入
-  - [ ] 阶段二：fetch 逻辑移到 Buffer.load()
+- [ ] **Content/Mode 分离** — Resource 持有内容，Buffer 绑定 Mode，Mode 只管渲染（详见 [content-mode-separation.md](content-mode-separation.md)）
+  - [x] 阶段一：ResourceStore 添加共享内容层，Buffer 引用 Resource
+  - [ ] 阶段二：所有 fetch 逻辑移到 Buffer/Resource.load()
   - [ ] 阶段三：Mode.canHandle + switchMode
-  - [ ] 阶段四：Mode 分层复用（mixin）
+  - [ ] 阶段四：Viewer 承载 scroll/selection/cursor 等显示状态
+  - [ ] 阶段五：Mode 分层复用（mixin）
 - [ ] App 拆分为 App + BufferManager — 减少 god object 问题
 - [ ] EventBus 类型化 — 添加事件类型映射，编译时检查
 - [ ] Buffer.state 类型化 — 每个 Mode 定义自己的 state 接口
 - [ ] 轻量模板系统 — 减少命令式 DOM 构建
 - [ ] 测试框架 — Mode.match、Pane.split 等核心函数单元测试
+- [x] 默认本机监听和路径越界安全修复
 
 ### 插件系统
 - [ ] 外部插件加载

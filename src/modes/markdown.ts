@@ -8,11 +8,6 @@ import type { App } from '../core/app'
 declare const marked: { parse(src: string): string }
 declare const DOMPurify: { sanitize(html: string): string }
 
-/** 编码路径，正确处理 #、?、& 等特殊字符 */
-function encodePath(path: string): string {
-  return path.split('/').map(segment => encodeURIComponent(segment)).join('/')
-}
-
 export const markdownMode: Mode = {
   name: 'markdown',
 
@@ -24,18 +19,19 @@ export const markdownMode: Mode = {
     const path = ctx.buffer.path
     const isEditing = ctx.buffer.state.isEditing ?? false
 
-    if (isEditing && ctx.buffer.state.rawContent) {
+    if (isEditing && typeof ctx.buffer.state.rawContent === 'string') {
       // 编辑模式
       showEditor(ctx.buffer.state.rawContent, path, ctx)
     } else {
-      // 预览模式
-      fetch(`/${encodePath(path)}`)
-        .then(r => r.ok ? r.text() : Promise.reject(new Error(r.statusText)))
+      ctx.buffer.loadText()
         .then(content => {
+          if (!isCurrentRender(ctx)) return
           ctx.buffer.state.rawContent = content
-          renderMarkdownView(ctx, content)
+          if (isEditing) showEditor(content, path, ctx)
+          else renderMarkdownView(ctx, content)
         })
         .catch(err => {
+          if (!isCurrentRender(ctx)) return
           ctx.container.textContent = `加载失败: ${err.message}`
         })
     }
@@ -51,7 +47,10 @@ export const markdownMode: Mode = {
       saveBtn.textContent = '保存'
       saveBtn.title = '保存更改'
       saveBtn.onclick = async () => {
-        const textarea = document.querySelector('.md-editor') as HTMLTextAreaElement
+        const pane = app.focusedPane?.buffer === buffer
+          ? app.focusedPane
+          : app.rootPane.findPaneByBuffer(buffer.path)
+        const textarea = pane?.contentEl?.querySelector('.md-editor') as HTMLTextAreaElement | null
         if (textarea) {
           await app.saveFileFromBuffer(buffer, textarea.value)
         }
@@ -95,6 +94,10 @@ function renderMarkdownView(ctx: ModeContext, content: string) {
   ctx.container.appendChild(div)
 }
 
+function isCurrentRender(ctx: ModeContext): boolean {
+  return ctx.pane.buffer === ctx.buffer && ctx.pane.contentEl === ctx.container
+}
+
 function fixLinks(div: HTMLElement, filepath: string) {
   const dir = filepath.includes('/') ? filepath.substring(0, filepath.lastIndexOf('/')) : ''
   div.querySelectorAll('a[href]').forEach(a => {
@@ -124,8 +127,7 @@ function setupCheckboxes(div: HTMLElement, path: string, ctx: ModeContext) {
     const input = cb as HTMLInputElement
     input.dataset.index = String(i)
     input.addEventListener('change', () => {
-      fetch(`/${encodePath(path)}`)
-        .then(r => r.text())
+      ctx.buffer.loadText(true)
         .then(content => {
           let idx = 0
           const updated = content.replace(/^(\s*)- \[[ xX]\]/gm, (match, indent) => {

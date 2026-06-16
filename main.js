@@ -199,11 +199,24 @@
 
   // src/core/buffer.ts
   var Buffer = class {
-    constructor(path, mode) {
+    constructor(path, mode, resource) {
       this.state = {};
       this.id = path;
       this.path = path;
       this.mode = mode;
+      this.resource = resource;
+    }
+    get content() {
+      return this.resource.content;
+    }
+    get version() {
+      return this.resource.version;
+    }
+    loadText(force = false) {
+      return this.resource.loadText(force);
+    }
+    setText(content) {
+      this.resource.setText(content);
     }
   };
 
@@ -343,6 +356,29 @@
     }
   };
 
+  // src/core/util.ts
+  function fileIcon(name) {
+    const ext = name.split(".").pop()?.toLowerCase() || "";
+    if (["md", "txt", "log"].includes(ext))
+      return "\u{1F4DD}";
+    if (["html", "htm"].includes(ext))
+      return "\u{1F310}";
+    if (["png", "jpg", "jpeg", "gif", "svg", "webp", "ico"].includes(ext))
+      return "\u{1F5BC}\uFE0F";
+    if (["js", "ts", "jsx", "tsx", "py", "rb", "go", "rs", "c", "cpp", "h"].includes(ext))
+      return "\u{1F4C4}";
+    if (["json", "yaml", "yml", "toml", "xml"].includes(ext))
+      return "\u{1F4CB}";
+    if (["css", "scss", "less"].includes(ext))
+      return "\u{1F3A8}";
+    if (["sh", "bash", "zsh"].includes(ext))
+      return "\u2699\uFE0F";
+    return "\u{1F4C4}";
+  }
+  function encodePath(path) {
+    return path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  }
+
   // src/core/api.ts
   var bust = (url) => url + (url.includes("?") ? "&" : "?") + "_t=" + Date.now();
   async function fetchConfig() {
@@ -358,6 +394,12 @@
       throw new Error("Failed to load file tree");
     return resp.json();
   }
+  async function fetchTextFile(path) {
+    const resp = await fetch(bust(`/${encodePath(path)}`));
+    if (!resp.ok)
+      throw new Error(`Failed to load ${path}: ${resp.statusText}`);
+    return resp.text();
+  }
   async function saveFile(path, content) {
     const resp = await fetch("/api/file", {
       method: "POST",
@@ -368,6 +410,67 @@
       throw new Error(`Failed to save: ${resp.status}`);
     }
   }
+
+  // src/core/resource.ts
+  var Resource = class {
+    constructor(path) {
+      this.kind = "unknown";
+      this.content = null;
+      this.loading = false;
+      this.loaded = false;
+      this.error = null;
+      this.version = 0;
+      this.loadPromise = null;
+      this.path = path;
+      if (path.endsWith("/")) {
+        this.kind = "directory";
+        this.loaded = true;
+      }
+    }
+    async loadText(force = false) {
+      if (!force && this.loaded && typeof this.content === "string") {
+        return this.content;
+      }
+      if (!force && this.loadPromise)
+        return this.loadPromise;
+      this.loading = true;
+      this.error = null;
+      this.loadPromise = fetchTextFile(this.path).then((content) => {
+        this.kind = "text";
+        this.content = content;
+        this.loaded = true;
+        this.version++;
+        return content;
+      }).catch((err) => {
+        this.error = err instanceof Error ? err : new Error(String(err));
+        throw this.error;
+      }).finally(() => {
+        this.loading = false;
+        this.loadPromise = null;
+      });
+      return this.loadPromise;
+    }
+    setText(content) {
+      this.kind = "text";
+      this.content = content;
+      this.loaded = true;
+      this.error = null;
+      this.version++;
+    }
+  };
+  var ResourceStore = class {
+    constructor() {
+      this.resources = /* @__PURE__ */ new Map();
+    }
+    get(path) {
+      let resource = this.resources.get(path);
+      if (!resource) {
+        resource = new Resource(path);
+        this.resources.set(path, resource);
+      }
+      return resource;
+    }
+  };
 
   // src/core/app.ts
   var App = class {
@@ -385,6 +488,7 @@
       this.modes = new ModeRegistry();
       this.events = new EventBus();
       this.commands = new CommandRegistry(this);
+      this.resources = new ResourceStore();
     }
     async init() {
       this.config = await fetchConfig();
@@ -409,7 +513,6 @@
     /** 设置 Pane 聚焦监听 */
     setupPaneFocus() {
       const updateFocus = (pane) => {
-        console.log("[app] updateFocus called, pane:", pane.id, "buffer:", pane.buffer?.path);
         if (this.focusedPane !== pane) {
           this.focusedPane = pane;
           this.events.emit("focus-changed", pane);
@@ -420,8 +523,7 @@
       };
       const setupClick = (pane) => {
         if (pane.isLeaf) {
-          pane.element.addEventListener("click", (e) => {
-            console.log("[app] pane clicked:", pane.id, "target:", e.target.className);
+          pane.element.addEventListener("click", () => {
             updateFocus(pane);
           });
         } else if (pane.children) {
@@ -434,7 +536,6 @@
     /** 打开文件到指定 Pane（默认聚焦的 Pane，回退到主 Pane） */
     openFile(path, targetPane) {
       const pane = targetPane || this.focusedPane || this.mainPane;
-      console.log("[app] openFile:", path, "pane:", pane?.id, "focusedPane:", this.focusedPane?.id, "mainPane:", this.mainPane?.id);
       if (!pane) {
         console.warn("[app] openFile: no pane available");
         return;
@@ -465,15 +566,11 @@
     updateModeToolbar(buffer) {
       const modeToolbar = document.getElementById("mode-toolbar");
       if (!modeToolbar) {
-        console.log("[app] updateModeToolbar: mode-toolbar element not found");
         return;
       }
-      console.log("[app] updateModeToolbar called for buffer:", buffer.path, "mode:", buffer.mode.name);
       modeToolbar.innerHTML = "";
       if (buffer.mode.renderToolbar) {
         buffer.mode.renderToolbar(modeToolbar, buffer, this);
-      } else {
-        console.log("[app] mode has no renderToolbar");
       }
     }
     getBuffer(path) {
@@ -483,7 +580,7 @@
       const mode = modeName ? this.modes.findModeByName(modeName) : this.modes.findMode(path);
       if (!mode)
         return null;
-      const buffer = new Buffer(path, mode);
+      const buffer = new Buffer(path, mode, this.resources.get(path));
       this.buffers.set(path, buffer);
       this.events.emit("buffer-created", buffer);
       return buffer;
@@ -492,25 +589,23 @@
       const buffer = this.buffers.get(path);
       if (!buffer)
         return;
+      const wasFocused = this.focusedPane?.buffer === buffer;
       for (const leaf of this.rootPane.getLeaves()) {
         if (leaf.buffer === buffer) {
           if (leaf !== this.mainPane) {
             leaf.hide();
           }
           leaf.clearBuffer();
-          break;
         }
       }
-      if (this.focusedPane?.buffer === buffer) {
+      if (wasFocused) {
         this.focusedPane = null;
       }
       this.buffers.delete(path);
       this.events.emit("buffer-closed", buffer);
       if (this.mainPane && !this.mainPane.buffer) {
-        console.log("[app] mainPane is empty, showing welcome");
         this.showWelcome();
       }
-      console.log("[app] after closeBuffer - focusedPane:", this.focusedPane?.id, "buffers:", this.buffers.size);
     }
     /** 显示欢迎/命令面板 fallback */
     showWelcome() {
@@ -531,12 +626,22 @@
     /** 保存 Buffer 内容并退出编辑模式 */
     async saveFileFromBuffer(buffer, content) {
       await saveFile(buffer.path, content);
+      buffer.setText(content);
       buffer.state.rawContent = content;
       buffer.state.isEditing = false;
-      const pane = this.rootPane.findPaneByBuffer(buffer.path);
-      if (pane)
-        this.renderPane(pane, buffer.path);
+      this.renderBufferEverywhere(buffer);
       this.updateModeToolbar(buffer);
+    }
+    renderBufferEverywhere(buffer) {
+      const focused = this.focusedPane;
+      for (const pane of this.rootPane.getLeaves()) {
+        if (pane.buffer === buffer) {
+          this.renderPane(pane, buffer.path);
+        }
+      }
+      this.focusedPane = focused;
+      if (focused)
+        this.events.emit("focus-changed", focused);
     }
     makeModeContext(container, buffer, pane) {
       return {
@@ -546,6 +651,11 @@
         openFile: (path) => this.openFile(path, pane),
         saveFile: async (path, content) => {
           await saveFile(path, content);
+          const target = this.getBuffer(path);
+          if (target) {
+            target.setText(content);
+            target.state.rawContent = content;
+          }
         },
         app: this
       };
@@ -596,10 +706,15 @@
       this.currentCss = localStorage.getItem("unipane-css") || "default";
     }
     init(config) {
-      this.baseLink = document.createElement("link");
-      this.baseLink.rel = "stylesheet";
-      this.baseLink.href = bust("/.unipane/themes/default.css");
-      document.head.appendChild(this.baseLink);
+      const existingBase = document.querySelector('link[href*="/.unipane/themes/default.css"]');
+      if (existingBase) {
+        this.baseLink = existingBase;
+      } else {
+        this.baseLink = document.createElement("link");
+        this.baseLink.rel = "stylesheet";
+        this.baseLink.href = bust("/.unipane/themes/default.css");
+        document.head.appendChild(this.baseLink);
+      }
       const saved = localStorage.getItem("unipane-css");
       this.currentCss = saved || config.theme || "default";
       this.applyCssTheme(this.currentCss);
@@ -656,7 +771,6 @@
   function createCommandPalette(app) {
     let overlay = null;
     function show(options = { mode: "command" }) {
-      console.log("[palette] show called, mode:", options.mode);
       if (overlay)
         hide();
       overlay = document.createElement("div");
@@ -807,9 +921,6 @@
   }
 
   // src/modes/markdown.ts
-  function encodePath(path) {
-    return path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
-  }
   var markdownMode = {
     name: "markdown",
     match(path) {
@@ -818,13 +929,20 @@
     render(ctx) {
       const path = ctx.buffer.path;
       const isEditing = ctx.buffer.state.isEditing ?? false;
-      if (isEditing && ctx.buffer.state.rawContent) {
+      if (isEditing && typeof ctx.buffer.state.rawContent === "string") {
         showEditor(ctx.buffer.state.rawContent, path, ctx);
       } else {
-        fetch(`/${encodePath(path)}`).then((r) => r.ok ? r.text() : Promise.reject(new Error(r.statusText))).then((content) => {
+        ctx.buffer.loadText().then((content) => {
+          if (!isCurrentRender(ctx))
+            return;
           ctx.buffer.state.rawContent = content;
-          renderMarkdownView(ctx, content);
+          if (isEditing)
+            showEditor(content, path, ctx);
+          else
+            renderMarkdownView(ctx, content);
         }).catch((err) => {
+          if (!isCurrentRender(ctx))
+            return;
           ctx.container.textContent = `\u52A0\u8F7D\u5931\u8D25: ${err.message}`;
         });
       }
@@ -837,7 +955,8 @@
         saveBtn.textContent = "\u4FDD\u5B58";
         saveBtn.title = "\u4FDD\u5B58\u66F4\u6539";
         saveBtn.onclick = async () => {
-          const textarea = document.querySelector(".md-editor");
+          const pane = app.focusedPane?.buffer === buffer ? app.focusedPane : app.rootPane.findPaneByBuffer(buffer.path);
+          const textarea = pane?.contentEl?.querySelector(".md-editor");
           if (textarea) {
             await app.saveFileFromBuffer(buffer, textarea.value);
           }
@@ -879,6 +998,9 @@
     setupCheckboxes(div, ctx.buffer.path, ctx);
     ctx.container.appendChild(div);
   }
+  function isCurrentRender(ctx) {
+    return ctx.pane.buffer === ctx.buffer && ctx.pane.contentEl === ctx.container;
+  }
   function fixLinks(div, filepath) {
     const dir = filepath.includes("/") ? filepath.substring(0, filepath.lastIndexOf("/")) : "";
     div.querySelectorAll("a[href]").forEach((a) => {
@@ -913,7 +1035,7 @@
       const input = cb;
       input.dataset.index = String(i);
       input.addEventListener("change", () => {
-        fetch(`/${encodePath(path)}`).then((r) => r.text()).then((content) => {
+        ctx.buffer.loadText(true).then((content) => {
           let idx = 0;
           const updated = content.replace(/^(\s*)- \[[ xX]\]/gm, (match, indent) => {
             if (idx === i) {
@@ -936,9 +1058,6 @@
   }
 
   // src/modes/image.ts
-  function encodePath2(path) {
-    return path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
-  }
   var imageMode = {
     name: "image",
     match(path) {
@@ -946,7 +1065,7 @@
     },
     render(ctx) {
       const img = document.createElement("img");
-      img.src = `/${encodePath2(ctx.buffer.path)}`;
+      img.src = `/${encodePath(ctx.buffer.path)}`;
       img.style.maxWidth = "100%";
       img.style.height = "auto";
       img.alt = ctx.buffer.path;
@@ -955,9 +1074,6 @@
   };
 
   // src/modes/html.ts
-  function encodePath3(path) {
-    return path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
-  }
   var htmlMode = {
     name: "html",
     match(path) {
@@ -969,53 +1085,33 @@
       iframe.style.width = "100%";
       iframe.style.height = "100%";
       iframe.style.border = "none";
-      iframe.src = `/${encodePath3(ctx.buffer.path)}`;
+      iframe.src = `/${encodePath(ctx.buffer.path)}`;
       ctx.container.appendChild(iframe);
     }
   };
 
   // src/modes/raw.ts
-  function encodePath4(path) {
-    return path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
-  }
   var rawMode = {
     name: "raw",
     match(_path) {
       return true;
     },
     render(ctx) {
-      const path = ctx.buffer.path;
-      fetch(`/${encodePath4(path)}`).then((r) => r.ok ? r.text() : Promise.reject(new Error(r.statusText))).then((content) => {
+      ctx.buffer.loadText().then((content) => {
+        if (ctx.pane.buffer !== ctx.buffer || ctx.pane.contentEl !== ctx.container)
+          return;
         const pre = document.createElement("pre");
         pre.textContent = content;
         pre.style.whiteSpace = "pre-wrap";
         pre.style.wordBreak = "break-word";
         ctx.container.appendChild(pre);
       }).catch((err) => {
+        if (ctx.pane.buffer !== ctx.buffer || ctx.pane.contentEl !== ctx.container)
+          return;
         ctx.container.textContent = `\u52A0\u8F7D\u5931\u8D25: ${err.message}`;
       });
     }
   };
-
-  // src/core/util.ts
-  function fileIcon(name) {
-    const ext = name.split(".").pop()?.toLowerCase() || "";
-    if (["md", "txt", "log"].includes(ext))
-      return "\u{1F4DD}";
-    if (["html", "htm"].includes(ext))
-      return "\u{1F310}";
-    if (["png", "jpg", "jpeg", "gif", "svg", "webp", "ico"].includes(ext))
-      return "\u{1F5BC}\uFE0F";
-    if (["js", "ts", "jsx", "tsx", "py", "rb", "go", "rs", "c", "cpp", "h"].includes(ext))
-      return "\u{1F4C4}";
-    if (["json", "yaml", "yml", "toml", "xml"].includes(ext))
-      return "\u{1F4CB}";
-    if (["css", "scss", "less"].includes(ext))
-      return "\u{1F3A8}";
-    if (["sh", "bash", "zsh"].includes(ext))
-      return "\u2699\uFE0F";
-    return "\u{1F4C4}";
-  }
 
   // src/modes/directory.ts
   var directoryMode = {
@@ -1256,6 +1352,10 @@
       });
     }
     document.addEventListener("keydown", (e) => {
+      const target = e.target;
+      const isTyping = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if (isTyping && e.key !== "Escape")
+        return;
       if (e.ctrlKey && e.key === "k") {
         e.preventDefault();
         palette.toggle();

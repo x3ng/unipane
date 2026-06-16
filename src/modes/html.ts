@@ -2,11 +2,7 @@
 
 import type { Mode } from '../core/mode-registry'
 import type { ModeContext } from '../core/mode-registry'
-
-/** 编码路径，正确处理 #、?、& 等特殊字符 */
-function encodePath(path: string): string {
-  return path.split('/').map(segment => encodeURIComponent(segment)).join('/')
-}
+import { encodePath } from '../core/util'
 
 export const htmlMode: Mode = {
   name: 'html',

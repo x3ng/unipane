@@ -5,18 +5,22 @@
 Unipane 采用类似 Emacs 的 Buffer Viewer 架构：
 
 - **Buffer 是第一抽象** — 所有内容都是 Buffer
+- **Resource 是共享内容** — 同一路径的真实内容只加载/缓存一份
+- **Viewer 是显示会话** — 同一 Buffer 可以在不同位置显示不同滚动/选择状态
 - **Pane 是布局容器** — 管理屏幕空间的分割和组合
 - **Mode 是渲染引擎** — 决定 Buffer 如何呈现
 
-核心思想：**框架不管内容，只管布局和生命周期。**
+核心思想：**Resource 管内容，Buffer 管语义，Viewer 管显示状态，Pane 管布局。**
 
 ## 概念映射
 
 | Emacs | Unipane | 说明 |
 |-------|---------|------|
+| File contents | Resource | 真实内容缓存 |
 | Frame | 页面 | 整个应用窗口 |
 | Window | Pane | 屏幕上的显示区域 |
 | Buffer | Buffer | 内容实例 |
+| Window state | Viewer | 一次显示会话的局部状态 |
 | Major Mode | Mode | 渲染和交互模式 |
 
 ## Buffer 为中心
@@ -29,7 +33,8 @@ Unipane 采用类似 Emacs 的 Buffer Viewer 架构：
 Buffer 的生命周期由 App 管理：
 - 打开文件 → 创建或切换 Buffer
 - 关闭 Buffer → 从所有 Pane 中移除
-- 同一文件只创建一个 Buffer
+- 同一路径的内容由 ResourceStore 共享
+- 同一文件可以创建多个不同 Mode 的 Buffer（规划中），例如 markdown / raw / outline
 
 ## Pane 布局
 
@@ -60,9 +65,28 @@ const [left, right] = pane.split('horizontal', 0.3)
 - 同一文件可以开多个 Tab
 
 Unipane Buffer：
-- Buffer 独立于显示
-- 关闭 Pane 不销毁 Buffer
-- 同一文件只有一个 Buffer
+- Resource 独立于 Buffer，Buffer 独立于显示
+- 关闭 Pane 不销毁 Buffer 或 Resource
+- 同一文件可通过多个 Buffer/Mode 查看，但共享同一个 Resource 内容实例
+
+## Viewer 规划
+
+当前实现中 Pane 仍直接显示 Buffer。下一步会引入 Viewer：
+
+```typescript
+interface Viewer {
+  id: string
+  buffer: Buffer
+  pane: Pane
+  state: {
+    scrollTop?: number
+    selection?: unknown
+    cursor?: unknown
+  }
+}
+```
+
+Viewer 只保存一次显示会话的局部状态，不拥有内容，也不覆盖 Buffer 的 Mode。
 
 ## 扩展点
 

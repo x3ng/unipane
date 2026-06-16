@@ -1,6 +1,7 @@
 // API layer — fetch wrapper and file operations
 
 import type { TreeItem, Config } from './types'
+import { encodePath } from './util'
 
 const bust = (url: string): string =>
   url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now()
@@ -16,6 +17,12 @@ export async function fetchTree(showHidden = false): Promise<TreeItem[]> {
   const resp = await fetch(bust(url))
   if (!resp.ok) throw new Error('Failed to load file tree')
   return resp.json()
+}
+
+export async function fetchTextFile(path: string): Promise<string> {
+  const resp = await fetch(bust(`/${encodePath(path)}`))
+  if (!resp.ok) throw new Error(`Failed to load ${path}: ${resp.statusText}`)
+  return resp.text()
 }
 
 export async function saveFile(path: string, content: string): Promise<void> {

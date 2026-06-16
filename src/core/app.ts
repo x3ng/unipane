@@ -6,6 +6,7 @@ import { ModeRegistry } from './mode-registry'
 import { EventBus } from './events'
 import { CommandRegistry } from './commands'
 import { fetchTree, fetchConfig, saveFile } from './api'
+import { ResourceStore } from './resource'
 import type { Config, TreeItem } from './types'
 import type { ModeContext } from './mode-registry'
 
@@ -15,6 +16,7 @@ export class App {
   modes: ModeRegistry
   events: EventBus
   commands: CommandRegistry
+  resources: ResourceStore
   config: Config | null = null
   tree: TreeItem[] | null = null
   root: string = ''
@@ -27,6 +29,7 @@ export class App {
     this.modes = new ModeRegistry()
     this.events = new EventBus()
     this.commands = new CommandRegistry(this)
+    this.resources = new ResourceStore()
   }
 
   async init(): Promise<void> {
@@ -66,7 +69,6 @@ export class App {
   /** 设置 Pane 聚焦监听 */
   private setupPaneFocus(): void {
     const updateFocus = (pane: Pane) => {
-      console.log('[app] updateFocus called, pane:', pane.id, 'buffer:', pane.buffer?.path)
       if (this.focusedPane !== pane) {
         this.focusedPane = pane
         this.events.emit('focus-changed', pane)
@@ -79,8 +81,7 @@ export class App {
     // 监听所有叶子 Pane 的点击
     const setupClick = (pane: Pane) => {
       if (pane.isLeaf) {
-        pane.element.addEventListener('click', (e) => {
-          console.log('[app] pane clicked:', pane.id, 'target:', (e.target as HTMLElement).className)
+        pane.element.addEventListener('click', () => {
           updateFocus(pane)
         })
       } else if (pane.children) {
@@ -94,7 +95,6 @@ export class App {
   /** 打开文件到指定 Pane（默认聚焦的 Pane，回退到主 Pane） */
   openFile(path: string, targetPane?: Pane): void {
     const pane = targetPane || this.focusedPane || this.mainPane
-    console.log('[app] openFile:', path, 'pane:', pane?.id, 'focusedPane:', this.focusedPane?.id, 'mainPane:', this.mainPane?.id)
     if (!pane) {
       console.warn('[app] openFile: no pane available')
       return
@@ -129,17 +129,13 @@ export class App {
   updateModeToolbar(buffer: Buffer): void {
     const modeToolbar = document.getElementById('mode-toolbar')
     if (!modeToolbar) {
-      console.log('[app] updateModeToolbar: mode-toolbar element not found')
       return
     }
-    console.log('[app] updateModeToolbar called for buffer:', buffer.path, 'mode:', buffer.mode.name)
     modeToolbar.innerHTML = ''
 
     // 通知 Mode 添加按钮
     if (buffer.mode.renderToolbar) {
       buffer.mode.renderToolbar(modeToolbar, buffer, this)
-    } else {
-      console.log('[app] mode has no renderToolbar')
     }
   }
 
@@ -153,7 +149,7 @@ export class App {
       : this.modes.findMode(path)
     if (!mode) return null
 
-    const buffer = new Buffer(path, mode)
+    const buffer = new Buffer(path, mode, this.resources.get(path))
     this.buffers.set(path, buffer)
     this.events.emit('buffer-created', buffer)
     return buffer
@@ -163,7 +159,9 @@ export class App {
     const buffer = this.buffers.get(path)
     if (!buffer) return
 
-    // 找到显示该 Buffer 的 Pane
+    const wasFocused = this.focusedPane?.buffer === buffer
+
+    // 清理所有显示该 Buffer 的 Pane。一个 Buffer 可以被多个 Pane/Viewer 引用。
     for (const leaf of this.rootPane.getLeaves()) {
       if (leaf.buffer === buffer) {
         // 如果是侧边 Pane，隐藏整个 Pane
@@ -171,12 +169,11 @@ export class App {
           leaf.hide()
         }
         leaf.clearBuffer()
-        break
       }
     }
 
     // 如果关闭的是聚焦的 Buffer，清除聚焦
-    if (this.focusedPane?.buffer === buffer) {
+    if (wasFocused) {
       this.focusedPane = null
     }
 
@@ -185,11 +182,8 @@ export class App {
 
     // 如果主 Pane 为空，显示命令面板 fallback
     if (this.mainPane && !this.mainPane.buffer) {
-      console.log('[app] mainPane is empty, showing welcome')
       this.showWelcome()
     }
-
-    console.log('[app] after closeBuffer - focusedPane:', this.focusedPane?.id, 'buffers:', this.buffers.size)
   }
 
   /** 显示欢迎/命令面板 fallback */
@@ -215,11 +209,22 @@ export class App {
   /** 保存 Buffer 内容并退出编辑模式 */
   async saveFileFromBuffer(buffer: Buffer, content: string): Promise<void> {
     await saveFile(buffer.path, content)
+    buffer.setText(content)
     buffer.state.rawContent = content
     buffer.state.isEditing = false
-    const pane = this.rootPane.findPaneByBuffer(buffer.path)
-    if (pane) this.renderPane(pane, buffer.path)
+    this.renderBufferEverywhere(buffer)
     this.updateModeToolbar(buffer)
+  }
+
+  renderBufferEverywhere(buffer: Buffer): void {
+    const focused = this.focusedPane
+    for (const pane of this.rootPane.getLeaves()) {
+      if (pane.buffer === buffer) {
+        this.renderPane(pane, buffer.path)
+      }
+    }
+    this.focusedPane = focused
+    if (focused) this.events.emit('focus-changed', focused)
   }
 
   makeModeContext(container: HTMLElement, buffer: Buffer, pane: Pane): ModeContext {
@@ -230,6 +235,11 @@ export class App {
       openFile: (path: string) => this.openFile(path, pane),
       saveFile: async (path: string, content: string) => {
         await saveFile(path, content)
+        const target = this.getBuffer(path)
+        if (target) {
+          target.setText(content)
+          target.state.rawContent = content
+        }
       },
       app: this,
     }

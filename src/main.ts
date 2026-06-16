@@ -107,6 +107,14 @@ async function main() {
 
   // 全局快捷键
   document.addEventListener('keydown', (e) => {
+    const target = e.target as HTMLElement | null
+    const isTyping = target
+      && (target.tagName === 'INPUT'
+        || target.tagName === 'TEXTAREA'
+        || target.isContentEditable)
+
+    if (isTyping && e.key !== 'Escape') return
+
     // Ctrl+K — 命令面板
     if (e.ctrlKey && e.key === 'k') {
       e.preventDefault()

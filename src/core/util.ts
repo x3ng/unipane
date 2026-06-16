@@ -12,6 +12,11 @@ export function fileIcon(name: string): string {
   return '📄'
 }
 
+/** Encode a slash-delimited file path for browser fetch URLs. */
+export function encodePath(path: string): string {
+  return path.split('/').map(segment => encodeURIComponent(segment)).join('/')
+}
+
 export function escapeHtml(str: string): string {
   const div = document.createElement('div')
   div.textContent = str

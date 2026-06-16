@@ -3,11 +3,6 @@
 import type { Mode } from '../core/mode-registry'
 import type { ModeContext } from '../core/mode-registry'
 
-/** 编码路径，正确处理 #、?、& 等特殊字符 */
-function encodePath(path: string): string {
-  return path.split('/').map(segment => encodeURIComponent(segment)).join('/')
-}
-
 export const rawMode: Mode = {
   name: 'raw',
 
@@ -16,10 +11,9 @@ export const rawMode: Mode = {
   },
 
   render(ctx: ModeContext) {
-    const path = ctx.buffer.path
-    fetch(`/${encodePath(path)}`)
-      .then(r => r.ok ? r.text() : Promise.reject(new Error(r.statusText)))
+    ctx.buffer.loadText()
       .then(content => {
+        if (ctx.pane.buffer !== ctx.buffer || ctx.pane.contentEl !== ctx.container) return
         const pre = document.createElement('pre')
         pre.textContent = content
         pre.style.whiteSpace = 'pre-wrap'
@@ -27,6 +21,7 @@ export const rawMode: Mode = {
         ctx.container.appendChild(pre)
       })
       .catch(err => {
+        if (ctx.pane.buffer !== ctx.buffer || ctx.pane.contentEl !== ctx.container) return
         ctx.container.textContent = `加载失败: ${err.message}`
       })
   },

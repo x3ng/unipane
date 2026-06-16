@@ -1,6 +1,6 @@
 # Content / Mode 分离设计
 
-> 状态：设计讨论中，未实现
+> 状态：阶段一已开始。已引入 Resource / ResourceStore 共享内容层，Markdown 和 Raw Mode 已通过 Buffer 加载文本内容；完整 Viewer 和全 Mode 迁移仍在规划中。
 
 ## 问题
 
@@ -23,10 +23,11 @@ render(ctx) {
 
 ## 目标
 
-1. **Buffer 持有内容** — 数据获取、缓存、生命周期归 Buffer
-2. **Mode 只管渲染** — 拿到已有数据，画 DOM
-3. **Mode 可自由切换** — 同一 Buffer 切换 Mode 不重新请求
-4. **任何内容都有 fallback** — 不拒绝显示，降级总比空白好
+1. **Resource 持有内容** — 数据获取、缓存、错误、版本归 Resource
+2. **Buffer 绑定 Mode** — Buffer 是 Resource 的语义包装，可有 dirty/edit/parse 状态
+3. **Viewer 承载显示状态** — scroll/cursor/selection 不污染 Buffer 内容状态
+4. **Mode 只管渲染** — 拿到已有数据和 Viewer 状态，画 DOM
+5. **任何内容都有 fallback** — 不拒绝显示，降级总比空白好
 
 ## 架构
 
@@ -34,9 +35,11 @@ render(ctx) {
 
 ```
 打开文件
-  → Buffer.load(path)         ← 根据路径判断 fetch 文本还是二进制
-  → Buffer.content = data     ← 持有原始数据
-  → Mode.render(buffer.content)  ← 纯渲染
+  → ResourceStore.get(path)      ← 同一路径共享真实内容
+  → Resource.load(path)          ← 根据路径判断 fetch 文本还是二进制
+  → Buffer(resource, mode)       ← Buffer 绑定 Mode 和语义状态
+  → Viewer(buffer, pane)         ← Viewer 保存显示状态
+  → Mode.render(buffer, viewer)  ← 纯渲染
 ```
 
 对比现状：
@@ -50,35 +53,36 @@ render(ctx) {
 ### Buffer 改造
 
 ```typescript
+class Resource {
+  path: string
+  content: string | Blob | ArrayBuffer | null
+  loaded: boolean             // 是否已加载
+  loading: boolean            // 是否加载中
+  error: Error | null
+  version: number
+
+  async load(): Promise<void> {
+    if (this.loaded) return
+    this.loading = true
+    this.content = await fetchContent(this.path)
+    this.loaded = true
+    this.loading = false
+    this.version++
+  }
+}
+
 class Buffer {
   path: string
+  resource: Resource
   mode: Mode
-  state: Record<string, any>
+  state: Record<string, unknown>
+  dirty: boolean
+}
 
-  // 新增：内容层
-  content: string | Blob | ArrayBuffer | null
-  contentReady: boolean       // 是否已加载
-  loading: boolean            // 是否加载中
-
-  // 新增：统一加载
-  async load(): Promise<void> {
-    if (this.contentReady) return
-    this.loading = true
-    // 根据扩展名判断 fetch 方式
-    if (isBinary(this.path)) {
-      this.content = await fetchBinary(this.path)
-    } else {
-      this.content = await fetchText(this.path)
-    }
-    this.contentReady = true
-    this.loading = false
-  }
-
-  // 新增：切换 Mode 不重新 fetch
-  switchMode(mode: Mode): void {
-    this.mode = mode
-    // 触发重新渲染，但不重新 fetch
-  }
+class Viewer {
+  buffer: Buffer
+  pane: Pane
+  state: Record<string, unknown>
 }
 ```
 
@@ -94,7 +98,7 @@ interface Mode {
   // 新增：能处理到什么程度
   canHandle(content: string | Blob | ArrayBuffer): 'full' | 'degraded' | 'none'
 
-  // 改造：content 从 ctx 传入，不再自己 fetch
+  // 改造：content 从 ctx.buffer.resource 传入，不再自己 fetch
   render(ctx: ModeContext): void
 
   renderToolbar?(container: HTMLElement, buffer: Buffer, app: App): void
@@ -105,7 +109,8 @@ interface Mode {
 
 ```typescript
 interface ModeContext {
-  buffer: Buffer              // 通过 buffer.content 拿数据
+  buffer: Buffer              // 通过 buffer.resource.content 拿数据
+  viewer?: Viewer             // 规划中：显示会话状态
   pane: Pane
   container: HTMLElement
   openFile: (path: string) => void
@@ -114,7 +119,7 @@ interface ModeContext {
 }
 ```
 
-`ctx.buffer.content` 就是已加载的数据，Mode 不需要自己 fetch。
+`ctx.buffer.resource.content` 就是已加载的数据，Mode 不需要自己 fetch。
 
 ## Mode 选择机制
 
@@ -146,7 +151,7 @@ const rawMode: Mode = {
     return 'degraded'  // 二进制显示 hex dump
   },
   render: (ctx) => {
-    const content = ctx.buffer.content
+    const content = ctx.buffer.resource.content
     if (typeof content === 'string') {
       ctx.container.textContent = content
     } else {
@@ -195,11 +200,12 @@ const markdownMode: Mode = {
   match: (p) => p.endsWith('.md'),
   canHandle: (c) => typeof c === 'string' ? 'full' : 'degraded',
   render: (ctx) => {
-    if (typeof ctx.buffer.content !== 'string') {
-      textMixin.renderHexDump(ctx.container, ctx.buffer.content)
+    const content = ctx.buffer.resource.content
+    if (typeof content !== 'string') {
+      textMixin.renderHexDump(ctx.container, content)
       return
     }
-    ctx.container.innerHTML = marked.parse(ctx.buffer.content)
+    ctx.container.innerHTML = marked.parse(content)
   }
 }
 ```
@@ -217,7 +223,7 @@ Markdown 链接 → `fixLinks` 转成 `#/file/...` → 点击 → `app.openFile(
 ```
 点击链接
   → 解析目标路径
-  → Buffer.load(target)          ← 获取内容
+  → ResourceStore.get(target).load()  ← 获取内容
   → ModeRegistry.findMode(path, content)  ← 自动选 Mode
   → 渲染
 ```
@@ -265,7 +271,7 @@ switchMode(buffer: Buffer, modeName: string): void {
   if (!mode) return
 
   // 检查兼容性
-  const level = mode.canHandle(buffer.content)
+  const level = mode.canHandle(buffer.resource.content)
   if (level === 'none') {
     // 提示用户：此 Mode 不支持当前内容
     return
@@ -280,23 +286,24 @@ switchMode(buffer: Buffer, modeName: string): void {
 
 ## 迁移策略
 
-### 阶段一：Buffer 添加内容层（不破坏现有）
+### 阶段一：Resource 添加内容层（不破坏现有）
 
-1. Buffer 添加 `content` 字段，初始为 `null`
-2. Mode.render 中仍然自己 fetch，但 fetch 后写入 `buffer.content`
-3. 后续访问同一 Buffer 的其他 Mode 可以复用 `buffer.content`
+1. 添加 Resource / ResourceStore，按路径缓存内容
+2. Buffer 引用 Resource，提供 `loadText()` / `setText()` 便捷方法
+3. Markdown / Raw 先迁移到 Buffer 加载文本内容
 
 ### 阶段二：fetch 逻辑移到 Buffer 层
 
-1. Buffer 添加 `load()` 方法
-2. App.openFile 调用 `buffer.load()` 后再调 `mode.render()`
-3. Mode.render 从 `ctx.buffer.content` 读数据，不再自己 fetch
+1. 所有文本/二进制 Mode 都通过 Resource 加载
+2. App.openFile 可以预加载或按 Mode 需要懒加载
+3. Mode.render 从 `ctx.buffer.resource.content` 读数据，不再自己 fetch
 
-### 阶段三：Mode 切换和 canHandle
+### 阶段三：Viewer 和 Mode 切换
 
-1. Mode 接口添加 `canHandle`
-2. App 添加 `switchMode`
-3. 链接导航使用新的 findMode 逻辑
+1. 引入 Viewer，保存 scroll/cursor/selection
+2. 同一路径允许多个 Buffer 绑定不同 Mode，共享 Resource
+3. Mode 接口添加 `canHandle`
+4. 链接导航使用新的 findMode 逻辑
 
 ### 阶段四：Mode 分层复用
 

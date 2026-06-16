@@ -2,14 +2,16 @@
 
 ## 概述
 
-Unipane 是一个本地内容浏览器，采用 Pane / Buffer / Mode 三层架构。核心设计哲学参考 Emacs：框架只管理布局和 Buffer 生命周期，所有内容渲染由 Mode 驱动。
+Unipane 是一个本地内容浏览器，采用 Resource / Buffer / Viewer / Pane / Mode 架构。核心设计哲学参考 Emacs：框架管理内容资源、Buffer 生命周期和布局，内容渲染由 Mode 驱动。
 
 ## 核心概念
 
 | 概念 | 定义 |
 |------|------|
+| **Resource** | 真实内容资源（通常是文件路径）的共享缓存，负责 load/error/version |
 | **Pane** | 显示容器，可嵌套分割，每个叶子 Pane 显示一个 Buffer |
-| **Buffer** | 内容实例（路径 + Mode + 状态），独立于显示 |
+| **Buffer** | 内容语义实例（Resource + Mode + 状态），独立于显示 |
+| **Viewer** | Buffer 的一次显示会话，承载滚动、选择、光标、局部 UI 状态（规划中） |
 | **Mode** | 渲染处理器，接收 Buffer 渲染到 Pane |
 
 ## 文件结构
@@ -21,6 +23,7 @@ src/
 │   ├── app.ts              — App 编排器
 │   ├── pane.ts             — Pane 类（分割、resize、显示 Buffer）
 │   ├── buffer.ts           — Buffer 类
+│   ├── resource.ts         — Resource / ResourceStore 共享内容层
 │   ├── mode-registry.ts    — Mode 注册表
 │   ├── router.ts           — URL hash → App.openFile()
 │   ├── events.ts           — EventBus
@@ -43,5 +46,5 @@ src/
 - [架构详解](design/architecture.md) — 模块职责、启动流程、技术选型
 - [Buffer Viewer 模型](design/buffer-viewer.md) — Pane / Buffer / Mode 设计哲学
 - [Mode 系统](design/modes.md) — Mode 接口、内置 Mode、如何扩展
-- [Content/Mode 分离](design/content-mode-separation.md) — Buffer 持有内容、Mode 只管渲染（规划中）
+- [Content/Mode 分离](design/content-mode-separation.md) — Resource 持有内容、Buffer 绑定 Mode、Viewer 管显示状态
 - [路线图](design/roadmap.md) — 已完成、近期计划、长期方向

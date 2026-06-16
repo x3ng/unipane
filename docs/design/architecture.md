@@ -2,12 +2,14 @@
 
 ## 核心概念
 
-**Buffer 为中心**：所有内容都是 Buffer，Pane 只是布局容器。
+**Buffer 为中心，Resource 共享内容**：所有内容语义都是 Buffer，Pane 只是布局容器；同一路径的多个 Buffer 可以共享一个 Resource 内容实例。
 
 | 概念 | 定义 |
 |------|------|
+| **Resource** | 真实内容资源（path + content + loading/error/version），由 ResourceStore 共享 |
 | **Pane** | 显示容器，可嵌套分割，每个叶子 Pane 显示一个 Buffer |
-| **Buffer** | 内容实例（路径 + Mode + 状态），独立于显示 |
+| **Buffer** | 内容语义实例（Resource + Mode + 状态），独立于显示 |
+| **Viewer** | Buffer 在某个 Pane 中的显示会话，保存 scroll/selection/cursor 等局部状态（规划中） |
 | **Mode** | 渲染处理器，接收 Buffer 渲染到 Pane |
 
 ## 模块职责
@@ -18,7 +20,8 @@
 |------|------|------|
 | **App** | `app.ts` | 顶层编排器。持有 Pane、Buffer、ModeRegistry、EventBus。管理 Buffer 生命周期，跟踪聚焦 Pane |
 | **Pane** | `pane.ts` | 显示容器。递归结构：叶子节点显示 Buffer，分支节点分割为子 Pane。支持水平/垂直分割、拖拽 resize |
-| **Buffer** | `buffer.ts` | 内容实例。持有路径、绑定的 Mode、运行时状态（showHidden 等）。同一文件只创建一个 Buffer |
+| **Buffer** | `buffer.ts` | 内容语义实例。持有路径、绑定的 Mode、运行时状态，并引用共享 Resource |
+| **Resource** | `resource.ts` | 共享内容层。按 path 缓存真实内容、加载状态、错误和 version；多个 Buffer 可共享 |
 | **ModeRegistry** | `mode-registry.ts` | Mode 注册表。按顺序匹配文件路径，返回对应 Mode |
 | **Router** | `router.ts` | URL hash 路由。解析 `#/file/<path>` → openFile，`#/dir/<path>` → directory mode |
 | **EventBus** | `events.ts` | 简单 pub/sub。支持事件：buffer-changed、buffer-created、buffer-closed、focus-changed |
@@ -85,7 +88,8 @@ main.ts
 
 ```
 用户点击文件 → openFile(path, pane)
-  → Buffer 已存在？切换 : 创建新 Buffer
+  → ResourceStore.get(path)
+  → Buffer 已存在？切换 : 创建新 Buffer(Resource + Mode)
   → pane.showBuffer(buffer)
   → Mode.render(ctx)
   → 渲染到 pane.contentEl
@@ -101,9 +105,9 @@ RootPane (horizontal)
 └── MainPane (80%) → 文件内容 Buffer
 ```
 
-## 下一步：Content/Mode 分离
+## Content/Mode 分离
 
-当前 Mode 同时负责 fetch 和 render，计划拆分为 Buffer 持有内容、Mode 只管渲染。
+当前已引入 Resource / ResourceStore 作为共享内容层，Markdown 和 Raw Mode 已开始通过 Buffer 加载文本内容。后续继续推进到：所有 Mode 不直接 fetch、Viewer 承载显示状态、同一路径可创建不同 Mode 的多个 Buffer 并共享 Resource。
 
 详见 [content-mode-separation.md](content-mode-separation.md)。
 

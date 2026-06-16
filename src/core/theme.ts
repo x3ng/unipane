@@ -16,10 +16,15 @@ export class ThemeManager {
 
   init(config: Config) {
     // Load default.css as base
-    this.baseLink = document.createElement('link')
-    this.baseLink.rel = 'stylesheet'
-    this.baseLink.href = bust('/.unipane/themes/default.css')
-    document.head.appendChild(this.baseLink)
+    const existingBase = document.querySelector<HTMLLinkElement>('link[href*="/.unipane/themes/default.css"]')
+    if (existingBase) {
+      this.baseLink = existingBase
+    } else {
+      this.baseLink = document.createElement('link')
+      this.baseLink.rel = 'stylesheet'
+      this.baseLink.href = bust('/.unipane/themes/default.css')
+      document.head.appendChild(this.baseLink)
+    }
 
     // Apply saved or config theme
     const saved = localStorage.getItem('unipane-css')

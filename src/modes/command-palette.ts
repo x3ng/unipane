@@ -19,7 +19,6 @@ export function createCommandPalette(app: App): {
   let overlay: HTMLElement | null = null
 
   function show(options: PaletteOptions = { mode: 'command' }) {
-    console.log('[palette] show called, mode:', options.mode)
     if (overlay) hide()
 
     overlay = document.createElement('div')

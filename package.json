@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --outfile=main.js --format=iife",
+    "build": "npm run typecheck && esbuild src/main.ts --bundle --outfile=main.js --format=iife",
+    "typecheck": "tsc --noEmit",
     "watch": "esbuild src/main.ts --bundle --outfile=main.js --format=iife --watch"
   },
   "devDependencies": {
